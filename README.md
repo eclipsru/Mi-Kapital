@@ -59,7 +59,7 @@ Electron Builder создаёт NSIS installer в `release/`. Сборку не�
 
 ## Автоматическая сборка и ссылки на файлы
 
-Workflow `.github/workflows/build-apps.yml` запускает сборку после push в рабочую ветку или вручную через GitHub Actions → **Build Android APK and Windows installer** → **Run workflow**. При ручном запуске выберите `publish_release=true`, чтобы добавить APK и EXE как прямые скачиваемые файлы в публичный GitHub pre-release. Без этой настройки доступны build artifacts `mi-kapital-android-apk` и `mi-kapital-windows-exe` на странице запуска (хранятся 30 дней).
+Workflow `.github/workflows/build-apps.yml` запускается при изменениях приложения в рабочей ветке и вручную через GitHub Actions → **Build Android APK and Windows installer** → **Run workflow**. Сборка при push публикует APK и EXE как файлы публичного GitHub pre-release; при ручном запуске выберите `publish_release=true`, чтобы тоже опубликовать их. Build artifacts `mi-kapital-android-apk` и `mi-kapital-windows-exe` доступны на странице запуска 30 дней.
 
 Чтобы эти сборки подключались к общей базе, до запуска workflow добавьте GitHub Actions secret с именем `VITE_SUPABASE_ANON_KEY` и значением публичного anon/publishable key из Supabase. Не добавляйте service_role key. Если secret не задан, APK и EXE будут собираться в локальном режиме без облачной синхронизации.
 

@@ -4,6 +4,17 @@ on:
   push:
     branches:
       - arena/0b68b9df-mi-kapital
+    paths:
+      - '.github/workflows/**'
+      - 'src/**'
+      - 'android/**'
+      - 'electron/**'
+      - 'supabase/migrations/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'capacitor.config.ts'
+      - 'index.html'
   workflow_dispatch:
     inputs:
       publish_release:
@@ -107,7 +118,7 @@ jobs:
 
   publish:
     name: Publish downloadable app files
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
+    if: ${{ github.event_name == 'push' || inputs.publish_release }}
     needs: [android, windows]
     runs-on: ubuntu-latest
     permissions:
