@@ -1,0 +1,73 @@
+name: Build Android APK and Windows installer
+
+on:
+  push:
+    branches:
+      - arena/0b68b9df-mi-kapital
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build APK
+        env:
+          VITE_SUPABASE_URL: https://txeasxiblszphfayvyye.supabase.co
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::warning::VITE_SUPABASE_ANON_KEY is not configured; this build will use local-only storage. Add it as a GitHub Actions secret and rebuild for cloud sync."
+          fi
+          npm run android:sync
+          cd android
+          ./gradlew --no-daemon assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mi-kapital-android-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    name: Windows EXE installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build installer
+        env:
+          VITE_SUPABASE_URL: https://txeasxiblszphfayvyye.supabase.co
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if (-not $env:VITE_SUPABASE_ANON_KEY) {
+            Write-Host "::warning::VITE_SUPABASE_ANON_KEY is not configured; this build will use local-only storage. Add it as a GitHub Actions secret and rebuild for cloud sync."
+          }
+          npm run desktop:build
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: mi-kapital-windows-exe
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30
