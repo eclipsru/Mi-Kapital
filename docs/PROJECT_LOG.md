@@ -22,7 +22,7 @@
 - Текстовые и голосовые описания, Photon подсказки адресов.
 - Supabase Auth, RLS, Realtime и закрытое Storage для аудио описаны миграцией; подключение к реальному проекту ещё требует ключа и применения SQL.
 - Capacitor Android project с разрешением микрофона и Electron main process.
-- GitHub Actions `.github/workflows/build-apps.yml` собирает debug APK и Windows NSIS installer, сохраняет сборочные логи при сбое.
+- GitHub Actions `.github/workflows/build-apps.yml` собирает debug APK и Windows NSIS installer, сохраняет сборочные логи при сбое; ручной запуск может опубликовать APK/EXE как публичные прямые download assets.
 - Полный SQL: `supabase/migrations/202611060001_initial_schema.sql`.
 
 ### Проверки и сборки
