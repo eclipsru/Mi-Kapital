@@ -12,33 +12,33 @@
 - Валюта RUB, деньги внутри представлены целыми копейками.
 - Для каждого вложения выбирается правило инвестора: процент от прибыли, суммы вложения, выручки либо ручная дополнительная сумма. Возврат капитала показывается отдельно; договорное правило выбирает владелец.
 - Потребительский долг содержит исходную сумму и журнал платежей; платёж выше остатка блокируется.
-- Главная показывает доход работ, выручку, результат перепродажи, затраты и оба вида долга раздельно.
-- Без Supabase-конфигурации приложение локальное. Неудачные облачные записи и удаления попадают в localStorage очередь повторной отправки.
+- Главная показывает доход работ, выручку, результат перепродажи, затраты и долги раздельно.
+- Без Supabase-конфигурации приложение локальное. Неудачные облачные записи и удаления остаются в localStorage очереди повторной отправки.
 
 ### Реализовано
 - Адаптивная навигация и страницы Главная, Перепродажа, Подработка, Инвесторы и Потребительские долги.
-- Формы товаров и продаж, работ, ремонтов с несколькими строками, пользовательских категорий, инвесторов и долгов.
+- Формы товаров/продаж, работ, ремонтов с несколькими строками, пользовательских категорий, инвесторов и долгов.
 - Частичные погашения потребительских долгов; отметка расчёта с инвестором.
 - Текстовые и голосовые описания, Photon подсказки адресов.
-- Supabase Auth, RLS, Realtime и закрытое Storage для аудио описаны миграцией; реальное подключение к Supabase пока не выполнялось.
+- Supabase Auth, RLS, Realtime и закрытое Storage для аудио описаны миграцией; подключение к реальному проекту ещё требует ключа и применения SQL.
 - Capacitor Android project с разрешением микрофона и Electron main process.
-- GitHub Actions `.github/workflows/build-apps.yml` для debug APK и Windows NSIS EXE; при неудаче workflow сохраняет диагностические логи отдельными артефактами.
-- Полная SQL migration доступна в `supabase/migrations/202611060001_initial_schema.sql` и была показана пользователю.
+- GitHub Actions `.github/workflows/build-apps.yml` собирает debug APK и Windows NSIS installer, сохраняет сборочные логи при сбое.
+- Полный SQL: `supabase/migrations/202611060001_initial_schema.sql`.
 
-### Проверки
+### Проверки и сборки
 - `npm run build` — успешно.
 - `npm test` — 7 тестов прошли.
 - `npx cap add android`, `npx cap sync android` — успешно.
 - `npm audit --omit=dev --audit-level=high` — 0 уязвимостей в production-зависимостях. Полный аудит показывает 6 умеренных предупреждений в dev/tooling `electron-builder`; `npm audit fix` требует понижения major версии builder.
-- Локальный APK build невозможен: `./gradlew assembleDebug` сообщает об отсутствующем `JAVA_HOME`; для Capacitor 7 workflow теперь настроен на JDK 21.
-- Windows build из контейнера невозможен: нет Electron native binary, его скачивание остановилось на TLS сертификате.
-- Первый GitHub Actions запуск `42287261137` завершился ошибкой на сборочном шаге для обеих платформ. Android pipeline был настроен на JDK 17, тогда как сгенерированный Capacitor gradle config использует Java 21; версия в workflow исправлена на 21; APK успешно собран во втором запуске `42287780060`. Windows logs во втором запуске показали, что electron-builder пытался неявно публиковать GitHub release и завершался без GitHub Personal Access Token; `desktop:build` исправлен на `--publish never`.
-- Actions build не был настроен на облачную синхронизацию: секрет `VITE_SUPABASE_ANON_KEY` отсутствует. Без него workflow выдаёт предупреждение и собирает local-only режим.
-- SQL migration не применялась в Supabase, ключи и `service_role` не запрашивались и не использовались.
+- Локальный APK build невозможен без `JAVA_HOME`; Capacitor gradle config использует Java 21, поэтому GitHub runner настроен на JDK 21.
+- Первый GitHub Actions запуск `42287261137` завершился с ошибкой по обеим платформам: Android был собран на JDK 17. В логах Windows выяснилось, что electron-builder неявно пытался публиковать GitHub release без токена; `desktop:build` исправлен на `--publish never`.
+- GitHub Actions запуск `42288529433` завершился успешно: APK job и Windows EXE job прошли. Артефакты `mi-kapital-android-apk` и `mi-kapital-windows-exe` доступны 30 дней на странице запуска.
+- В workflow не настроен `VITE_SUPABASE_ANON_KEY`, поэтому выпущенные артефакты пока работают в локальном режиме и не синхронизируются между устройствами. GitHub Actions secret надо добавить перед следующим облачным build.
+- SQL migration не применялась в Supabase; `service_role` ключ не запрашивался и не использовался.
 
 ### Следующие шаги
-1. Успешно повторить GitHub Actions сборку Android и Windows и скачать соответствующие artifacts.
-2. Если нужен облачный доступ в этих сборках — добавить GitHub Actions secret `VITE_SUPABASE_ANON_KEY` со значением публичного anon/publishable key.
-3. Применить миграцию в SQL Editor проекта `txeasxiblszphfayvyye`, создать владельца через Supabase Auth, проверить синхронизацию/RLS/Storage.
-4. Проверить микрофон и воспроизведение в Android/Electron.
+1. Применить `supabase/migrations/202611060001_initial_schema.sql` в SQL Editor проекта `txeasxiblszphfayvyye`.
+2. Включить Email/Password в Supabase Auth и создать владельца через Dashboard.
+3. Добавить GitHub Actions secret `VITE_SUPABASE_ANON_KEY` со значением только публичного anon/publishable key и повторно запустить workflow; не добавлять service_role key.
+4. Проверить синхронизацию, RLS/Storage, микрофон и воспроизведение на устройствах.
 5. Добавить редактирование записей, журнал частичных выплат инвесторам и фильтр периода на главной.
