@@ -5,7 +5,7 @@
 ## Требования
 
 - Node.js 20.19+ или 22.12+ и npm.
-- Для APK: Android Studio, Android SDK и JDK 17.
+- Для APK: Android Studio, Android SDK и JDK 21.
 - Для Windows installer: сборка на Windows или настроенный Windows cross-build toolchain.
 - Для облачной синхронизации: Supabase-проект с применённой SQL-миграцией и настроенным Supabase Auth.
 
