@@ -32,7 +32,7 @@
 - `npm audit --omit=dev --audit-level=high` — 0 уязвимостей в production-зависимостях. Полный аудит показывает 6 умеренных предупреждений в dev/tooling `electron-builder`; `npm audit fix` требует понижения major версии builder.
 - Локальный APK build невозможен: `./gradlew assembleDebug` сообщает об отсутствующем `JAVA_HOME`; для Capacitor 7 workflow теперь настроен на JDK 21.
 - Windows build из контейнера невозможен: нет Electron native binary, его скачивание остановилось на TLS сертификате.
-- Первый GitHub Actions запуск `42287261137` завершился ошибкой на сборочном шаге для обеих платформ. Android pipeline был настроен на JDK 17, тогда как сгенерированный Capacitor gradle config использует Java 21; версия в workflow исправлена на 21. Причина Windows ошибки пока не установлена; workflow обновлён, чтобы при следующей ошибке загружать build logs.
+- Первый GitHub Actions запуск `42287261137` завершился ошибкой на сборочном шаге для обеих платформ. Android pipeline был настроен на JDK 17, тогда как сгенерированный Capacitor gradle config использует Java 21; версия в workflow исправлена на 21; APK успешно собран во втором запуске `42287780060`. Windows logs во втором запуске показали, что electron-builder пытался неявно публиковать GitHub release и завершался без GitHub Personal Access Token; `desktop:build` исправлен на `--publish never`.
 - Actions build не был настроен на облачную синхронизацию: секрет `VITE_SUPABASE_ANON_KEY` отсутствует. Без него workflow выдаёт предупреждение и собирает local-only режим.
 - SQL migration не применялась в Supabase, ключи и `service_role` не запрашивались и не использовались.
 
