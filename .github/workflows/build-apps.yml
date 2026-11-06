@@ -1,0 +1,151 @@
+name: Build Android APK and Windows installer
+
+on:
+  push:
+    branches:
+      - arena/0b68b9df-mi-kapital
+    paths:
+      - '.github/workflows/**'
+      - 'src/**'
+      - 'android/**'
+      - 'electron/**'
+      - 'supabase/migrations/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'capacitor.config.ts'
+      - 'index.html'
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish APK and EXE as public GitHub release assets
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build APK
+        env:
+          VITE_SUPABASE_URL: https://txeasxiblszphfayvyye.supabase.co
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::warning::VITE_SUPABASE_ANON_KEY is not configured; this build will use local-only storage. Add it as a GitHub Actions secret and rebuild for cloud sync."
+          fi
+          npm run android:sync 2>&1 | tee android-build.log
+          (cd android && ./gradlew --no-daemon --stacktrace assembleDebug) 2>&1 | tee -a android-build.log
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mi-kapital-android-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload Android build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mi-kapital-android-build-log
+          path: android-build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  windows:
+    name: Windows EXE installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build installer
+        env:
+          VITE_SUPABASE_URL: https://txeasxiblszphfayvyye.supabase.co
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        shell: pwsh
+        run: |
+          if (-not $env:VITE_SUPABASE_ANON_KEY) {
+            Write-Host "::warning::VITE_SUPABASE_ANON_KEY is not configured; this build will use local-only storage. Add it as a GitHub Actions secret and rebuild for cloud sync."
+          }
+          npm run desktop:build *>&1 | Tee-Object -FilePath desktop-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: mi-kapital-windows-exe
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Surface Windows build log
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path desktop-build.log) {
+            $tail = (Get-Content desktop-build.log -Tail 80) -join "`n"
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows build log::$escaped"
+          }
+      - name: Upload Windows build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mi-kapital-windows-build-log
+          path: desktop-build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: Publish downloadable app files
+    if: ${{ github.event_name == 'push' || inputs.publish_release }}
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mi-kapital-android-apk
+          path: app-files/android
+      - name: Download EXE artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mi-kapital-windows-exe
+          path: app-files/windows
+      - name: Publish GitHub release with direct downloads
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-build-${{ github.run_number }}
+          name: Мой капитал — сборка ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          files: |
+            app-files/android/app-debug.apk
+            app-files/windows/*.exe
+          body: |
+            Pre-release APK and Windows installer generated by CI.
+
+            If the repository secret `VITE_SUPABASE_ANON_KEY` was not configured for this build, the apps use local-only storage and do not synchronize with Supabase.

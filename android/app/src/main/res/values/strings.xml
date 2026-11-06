@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Мой капитал</string>
+    <string name="title_activity_main">Мой капитал</string>
+    <string name="package_name">ru.eclipsru.mikapital</string>
+    <string name="custom_url_scheme">ru.eclipsru.mikapital</string>
+</resources>
