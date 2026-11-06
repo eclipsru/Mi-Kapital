@@ -81,6 +81,15 @@ jobs:
           path: release/*.exe
           if-no-files-found: error
           retention-days: 30
+      - name: Surface Windows build log
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path desktop-build.log) {
+            $tail = (Get-Content desktop-build.log -Tail 80) -join "`n"
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows build log::$escaped"
+          }
       - name: Upload Windows build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
