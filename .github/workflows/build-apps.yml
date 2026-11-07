@@ -3,10 +3,14 @@ name: Build Android APK and Windows installer
 on:
   push:
     branches:
-      - arena/0b68b9df-mi-kapital
+      - main
+      - 'arena/**'
     paths:
       - '.github/workflows/**'
       - 'src/**'
+      - 'scripts/**'
+      - 'assets/**'
+      - 'public/**'
       - 'android/**'
       - 'electron/**'
       - 'supabase/migrations/**'
@@ -18,17 +22,38 @@ on:
   workflow_dispatch:
     inputs:
       publish_release:
-        description: Publish APK and EXE as public GitHub release assets
+        description: Publish APK, EXE, and differential update bundle as latest GitHub release
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
 
 jobs:
+  verify:
+    name: Verify tests, dark UI guard & update bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm ci
+      - name: Run test suite & dark-design guards
+        run: npm test
+      - name: Verify production build & hot-update bundle
+        run: |
+          npm run build
+          npm run bundle:update
+
   android:
     name: Android APK
+    needs: [verify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -41,23 +66,25 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: npm ci
+      - name: Set build version
+        run: npm version "1.0.${{ github.run_number }}" --no-git-tag-version
       - name: Build APK
         env:
           VITE_SUPABASE_URL: https://txeasxiblszphfayvyye.supabase.co
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
-            echo "::warning::VITE_SUPABASE_ANON_KEY is not configured; this build will use local-only storage. Add it as a GitHub Actions secret and rebuild for cloud sync."
-          fi
           npm run android:sync 2>&1 | tee android-build.log
           (cd android && ./gradlew --no-daemon --stacktrace assembleDebug) 2>&1 | tee -a android-build.log
+          cp android/app/build/outputs/apk/debug/app-debug.apk "android/app/build/outputs/apk/debug/Mi-Kapital-1.0.${GITHUB_RUN_NUMBER}.apk"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: mi-kapital-android-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/Mi-Kapital-1.0.${{ github.run_number }}.apk
           if-no-files-found: error
           retention-days: 30
       - name: Upload Android build log on failure
@@ -70,7 +97,8 @@ jobs:
           retention-days: 7
 
   windows:
-    name: Windows EXE installer
+    name: Windows EXE installer & differential update bundle
+    needs: [verify]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -80,33 +108,58 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Build installer
+      - name: Set build version
+        shell: pwsh
+        run: npm version "1.0.${{ github.run_number }}" --no-git-tag-version
+      - name: Build installer and update bundle
         env:
           VITE_SUPABASE_URL: https://txeasxiblszphfayvyye.supabase.co
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          RELEASE_TAG: v1.0.${{ github.run_number }}
         shell: pwsh
         run: |
-          if (-not $env:VITE_SUPABASE_ANON_KEY) {
-            Write-Host "::warning::VITE_SUPABASE_ANON_KEY is not configured; this build will use local-only storage. Add it as a GitHub Actions secret and rebuild for cloud sync."
-          }
           npm run desktop:build *>&1 | Tee-Object -FilePath desktop-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload Windows installer
+
+          $ver = "1.0.${{ github.run_number }}"
+          $exe = "release/Mi-Kapital-Setup-$ver.exe"
+          $blockmap = "$exe.blockmap"
+          $latest = "release/latest.yml"
+          $bundle = "release/app-bundle-$ver.pak.gz"
+          $manifestPath = "release/app-update-manifest.json"
+
+          foreach ($f in @($exe, $blockmap, $latest, $bundle, $manifestPath)) {
+            if (-not (Test-Path $f)) {
+              Write-Error "Missing required release artifact: $f"
+              exit 1
+            }
+          }
+
+          $latestContent = Get-Content $latest -Raw
+          if ($latestContent -notmatch "Mi-Kapital-Setup-$ver\.exe") {
+            Write-Error "latest.yml does not reference ASCII installer Mi-Kapital-Setup-$ver.exe"
+            exit 1
+          }
+
+          $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+          $actualHash = (Get-FileHash $bundle -Algorithm SHA256).Hash.ToLower()
+          if ($manifest.bundleSha256.ToLower() -ne $actualHash) {
+            Write-Error "Bundle SHA-256 mismatch in app-update-manifest.json"
+            exit 1
+          }
+          Write-Host "Verified all Windows installer & differential update artifacts for v$ver"
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mi-kapital-windows-exe
-          path: release/*.exe
+          path: |
+            release/Mi-Kapital-Setup-*.exe
+            release/Mi-Kapital-Setup-*.exe.blockmap
+            release/latest.yml
+            release/app-bundle-*.pak.gz
+            release/app-update-manifest.json
           if-no-files-found: error
           retention-days: 30
-      - name: Surface Windows build log
-        if: failure()
-        shell: pwsh
-        run: |
-          if (Test-Path desktop-build.log) {
-            $tail = (Get-Content desktop-build.log -Tail 80) -join "`n"
-            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::error title=Windows build log::$escaped"
-          }
       - name: Upload Windows build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -117,7 +170,7 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish downloadable app files
+    name: Publish verified release
     if: ${{ github.event_name == 'push' || inputs.publish_release }}
     needs: [android, windows]
     runs-on: ubuntu-latest
@@ -129,23 +182,31 @@ jobs:
         with:
           name: mi-kapital-android-apk
           path: app-files/android
-      - name: Download EXE artifact
+      - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
           name: mi-kapital-windows-exe
           path: app-files/windows
-      - name: Publish GitHub release with direct downloads
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: app-build-${{ github.run_number }}
-          name: Мой капитал — сборка ${{ github.run_number }}
+          tag_name: v1.0.${{ github.run_number }}
+          name: Мой капитал v1.0.${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          prerelease: true
-          make_latest: false
+          prerelease: false
+          make_latest: true
           files: |
-            app-files/android/app-debug.apk
+            app-files/android/*.apk
             app-files/windows/*.exe
+            app-files/windows/*.blockmap
+            app-files/windows/latest.yml
+            app-files/windows/*.pak.gz
+            app-files/windows/app-update-manifest.json
           body: |
-            Pre-release APK and Windows installer generated by CI.
+            Проверенная сборка приложения **«Мой капитал» v1.0.${{ github.run_number }}** в едином тёмном оформлении сайта.
 
-            If the repository secret `VITE_SUPABASE_ANON_KEY` was not configured for this build, the apps use local-only storage and do not synchronize with Supabase.
+            ### Файлы
+            - **`Mi-Kapital-Setup-1.0.${{ github.run_number }}.exe`** — установщик для Windows (устанавливается один раз; дальнейшие обновления скачиваются прямо внутри приложения).
+            - **`app-bundle-1.0.${{ github.run_number }}.pak.gz`** и **`app-update-manifest.json`** — быстрый пакет обновления интерфейса и логики (~140 КБ), загружаемый напрямую из приложения без переустановки.
+            - **`Mi-Kapital-Setup-1.0.${{ github.run_number }}.exe.blockmap`** и **`latest.yml`** — дифференциальное блочное обновление оболочки Electron.
+            - **`Mi-Kapital-1.0.${{ github.run_number }}.apk`** — сборка для Android.

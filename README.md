@@ -1,13 +1,23 @@
 # Мой капитал
 
-Личное приложение для учёта доходов, товаров на перепродажу, инвестиций и долгов. Интерфейс построен на React + TypeScript + Vite. Общая веб-кодовая база подготавливается для запуска в Android через Capacitor и для Windows через Electron.
+Личное приложение для учёта доходов, товаров на перепродажу, инвестиций и долгов.
+Интерфейс построен на React + TypeScript + Vite в единой тёмно-оранжевой дизайн-системе сайта (`#0B0D11` / `#101217` / `#1A1D24` / `#FF8F1F`), без светлой и альтернативных тем. Общая кодовая база собирается для **Windows (Electron)** и **Android (Capacitor)**.
 
-## Требования
+## Обновление приложения на ПК без переустановки
+
+Установщик `Mi-Kapital-Setup-1.0.x.exe` скачивается и ставится **один раз**. Все последующие обновления после правок в чате доставляются напрямую внутри приложения:
+
+1. **Быстрый пакет изменений (`app-bundle-1.0.x.pak.gz` + `app-update-manifest.json`, ~140 КБ)** — если изменились интерфейс или логика приложения, скачивается только сжатый пакет веб-слоя с проверкой SHA-256 и применяется мгновенно прямо в открытом окне без запуска установщика.
+2. **Дифференциальное блочное обновление оболочки (`Mi-Kapital-Setup-1.0.x.exe.blockmap` + `latest.yml`)** — если изменился сам процесс Electron (`electron/*`), `electron-updater` скачивает только изменённые блоки установщика, а не весь файл целиком.
+
+Проверка выполняется автоматически при запуске приложения и каждые 30 минут, а также вручную по кнопке **«Обновить»** в верхней шапке или в окне **«Кабинет»**.
+
+## Требования для локальной разработки
 
 - Node.js 20.19+ или 22.12+ и npm.
 - Для APK: Android Studio, Android SDK и JDK 21.
-- Для Windows installer: сборка на Windows или настроенный Windows cross-build toolchain.
-- Для облачной синхронизации: Supabase-проект с применённой SQL-миграцией и настроенным Supabase Auth.
+- Для Windows installer: Windows или GitHub Actions (`windows-latest`).
+- Для облачной синхронизации: проект Supabase с применёнными миграциями `supabase/migrations/`.
 
 ## Запуск в браузере
 
@@ -17,58 +27,23 @@ cp .env.example .env
 npm run dev
 ```
 
-Если `.env` не заполнен, приложение использует локальное хранилище браузера. Эти записи не синхронизируются с другими устройствами. Не удаляйте данные сайта, пока не настроено облако.
+Если `.env` не заполнен, приложение работает в локальном режиме и сохраняет записи на устройстве.
 
 ## Supabase
 
-1. В Supabase Dashboard откройте SQL Editor и примените `supabase/migrations/202611060001_initial_schema.sql`.
-2. Включите Email/Password в Authentication → Providers и создайте пользователя в Authentication → Users. Регистрация из интерфейса приложения закрыта.
-3. Скопируйте Project URL и anon/publishable key из Settings → API в `.env`:
+1. В Supabase Dashboard откройте SQL Editor и по очереди примените:
+   - `supabase/migrations/202611060001_initial_schema.sql`
+   - `supabase/migrations/202611070001_ledger_deletions.sql` (инкрементальная синхронизация только изменившихся и удалённых записей)
+2. Включите Email/Password в Authentication → Providers и создайте пользователя владельца в Authentication → Users.
+3. Укажите публичный `VITE_SUPABASE_URL` и `VITE_SUPABASE_ANON_KEY` в `.env` или в GitHub Actions Secrets (`VITE_SUPABASE_ANON_KEY`). Никогда не помещайте `service_role` ключ в клиентское приложение.
 
-```env
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<public-anon-or-publishable-key>
-```
-
-Используйте только публичный anon/publishable ключ. Никогда не помещайте `service_role`/secret key в `.env` клиентского приложения, Git, Android или Windows bundle. Доступ к данным ограничивается Supabase Auth и RLS-политиками миграции.
-
-4. Перезапустите dev-server. В форме входа используйте созданный аккаунт.
-
-Приложение синхронизирует записи через `public.ledger_entries`, обновляет данные при загрузке/ручном обновлении и слушает Supabase Realtime для изменений в том же аккаунте. Голосовые заметки хранятся отдельно в закрытом bucket `voice-notes`.
-
-## Android APK
+## Проверки и сборка
 
 ```bash
-npm install
-npx cap add android       # один раз, если папки android ещё нет
-npm run android:sync
-npx cap open android
+npm test            # тесты расчётов, апдейтера и защиты единой тёмной темы
+npm run build       # проверка типов TypeScript и production-сборка
+npm run bundle:update # формирование пакета быстрого обновления (~140 КБ)
 ```
 
-В Android Studio выберите Build → Build Bundle(s) / APK(s) → Build APK(s). Для выпуска в Google Play создайте собственный signing key и соберите signed APK/AAB. Права микрофона и поведение WebView следует проверить в Android Studio перед передачей приложения.
-
-## Windows EXE/installer
-
-```bash
-npm install
-npm run build
-npm run desktop:build
-```
-
-Electron Builder создаёт NSIS installer в `release/`. Сборку необходимо запускать на Windows для надёжного формирования Windows installer. Для локального запуска desktop shell: `npm run desktop:dev`.
-
-## Автоматическая сборка и ссылки на файлы
-
-Workflow `.github/workflows/build-apps.yml` запускается при изменениях приложения в рабочей ветке и вручную через GitHub Actions → **Build Android APK and Windows installer** → **Run workflow**. Сборка при push публикует APK и EXE как файлы публичного GitHub pre-release; при ручном запуске выберите `publish_release=true`, чтобы тоже опубликовать их. Build artifacts `mi-kapital-android-apk` и `mi-kapital-windows-exe` доступны на странице запуска 30 дней.
-
-Чтобы эти сборки подключались к общей базе, до запуска workflow добавьте GitHub Actions secret с именем `VITE_SUPABASE_ANON_KEY` и значением публичного anon/publishable key из Supabase. Не добавляйте service_role key. Если secret не задан, APK и EXE будут собираться в локальном режиме без облачной синхронизации.
-
-## Проверка
-
-```bash
-npm run build
-```
-
-## Финансовые принципы
-
-См. `docs/DATA_MODEL.md`. На главной выручка, вложения, прибыль и остатки долгов отображаются отдельно. Текущая сводка охватывает всё время; фильтр периодов будет реализован отдельно.
+Актуальная проверенная сборка всегда публикуется по постоянному адресу:
+`https://github.com/eclipsru/Mi-Kapital/releases/latest`
