@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Палитра сайта «Ива / Arenda-Nvk»: тёмные поверхности и оранжевый акцент -->
+    <color name="colorPrimary">#FF8F1F</color>
+    <color name="colorPrimaryDark">#101217</color>
+    <color name="colorAccent">#FF8F1F</color>
+    <color name="appBackground">#101217</color>
+</resources>

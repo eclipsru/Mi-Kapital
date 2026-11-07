@@ -2,21 +2,23 @@
   "name": "mi-kapital",
   "private": true,
   "main": "electron/main.cjs",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
+    "bundle:update": "node scripts/build-update-bundle.mjs",
     "test": "vitest run",
     "preview": "vite preview --host 0.0.0.0",
     "android:sync": "npm run build && cap sync android",
     "android:open": "cap open android",
     "desktop:dev": "electron .",
-    "desktop:build": "npm run build && electron-builder --win nsis --publish never"
+    "desktop:build": "npm run build && electron-builder --win nsis --publish never && npm run bundle:update"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "electron-updater": "^6.8.11",
     "lucide-react": "^0.468.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -31,16 +33,26 @@
     "@types/react-dom": "^19.1.7",
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0",
+    "happy-dom": "^21.0.4",
     "typescript": "~5.9.2",
     "vitest": "^5.1.0"
   },
   "build": {
     "appId": "ru.eclipsru.mikapital",
     "productName": "Мой капитал",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "eclipsru",
+        "repo": "Mi-Kapital",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "assets/icon.png"
     ],
     "directories": {
       "output": "release"
@@ -48,11 +60,14 @@
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "Mi-Kapital-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "differentialPackage": true
     }
   }
 }
