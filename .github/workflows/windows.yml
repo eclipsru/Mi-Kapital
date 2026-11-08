@@ -98,9 +98,14 @@ jobs:
         shell: pwsh
         run: |
           Get-Process Mi-Kapital -ErrorAction SilentlyContinue | Stop-Process -Force
-          $p=Start-Process -FilePath (Resolve-Path baseline-native.exe) -ArgumentList '/S','/D=C:\MiKapitalTest' -Wait -PassThru
-          if ($p.ExitCode -ne 0) {
-            Write-Output "::error title=Native baseline install::Exit $($p.ExitCode); files: $(Get-ChildItem C:\MiKapitalTest -Recurse -Filter Mi-Kapital.exe -ErrorAction SilentlyContinue | ForEach-Object FullName | Out-String)"
+          Start-Sleep -Seconds 2
+          $p=Start-Process -FilePath (Resolve-Path baseline-native.exe) -ArgumentList '/S','/currentuser','/D=C:\MiKapitalTest' -Wait -PassThru
+          $installCode=$p.ExitCode
+          Write-Output "::notice title=Native baseline exit::$installCode"
+          if ($installCode -ne 0) {
+            $found=@(Get-ChildItem C:\MiKapitalTest -Recurse -Filter Mi-Kapital.exe -ErrorAction SilentlyContinue | ForEach-Object FullName)
+            $diag=(ConvertTo-Json @{exit=$installCode;found=$found} -Compress).Replace('%','%25')
+            Write-Output "::error title=Native baseline install::$diag"
             exit 1
           }
           if (!(Test-Path C:\MiKapitalTest\Mi-Kapital.exe)) {
