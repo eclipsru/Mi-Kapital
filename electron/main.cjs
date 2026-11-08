@@ -32,10 +32,13 @@ function registerProtocol() {
   protocol.handle('app', request => {
     try {
       const url = new URL(request.url);
-      if (url.hostname !== 'mi-kapital') return new Response('Not found', { status:404 });
+      if (url.hostname !== 'mi-kapital') { if (testServer) console.log('Protocol host mismatch:', request.url); return new Response('Not found', { status:404 }); }
       const rel = core.safePath(decodeURIComponent(url.pathname).replace(/^\//, '') || 'index.html');
       const file = path.resolve(active.root, rel);
-      if (!file.startsWith(path.resolve(active.root) + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return new Response('Not found', { status:404 });
+      if (!file.startsWith(path.resolve(active.root) + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+        if (testServer) console.log('Protocol file unavailable:', JSON.stringify({ url:request.url, root:active.root, file, exists:fs.existsSync(file) }));
+        return new Response('Not found', { status:404 });
+      }
       return new Response(fs.readFileSync(file), { headers:{ 'Content-Type':MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff' } });
     } catch { return new Response('Bad request', { status:400 }); }
   });

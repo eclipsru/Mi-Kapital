@@ -32,7 +32,7 @@ try{
   if(mode==='files'){
     const changed=requests.filter(r=>r.name.startsWith('update-'));if(!changed.length)throw new Error('No changed file downloaded');
     if(changed.some(r=>r.name.includes('manrope')||r.name.includes('react-pNCWXP0n')))throw new Error('Unchanged vendor/font downloaded');
-    await page.evaluate(()=>window.desktop.installUpdate());await page.waitForFunction(v=>document.querySelector('.sidebar-footer')?.textContent?.includes(`v${v}`),manifest.version);const data=await page.evaluate(()=>window.desktop.loadData());if(data.accounts[0].openingKopecks!==123456)throw new Error('Data lost during file update');
+    await Promise.all([page.waitForEvent('framenavigated'),page.evaluate(()=>window.desktop.installUpdate())]);await page.waitForFunction(v=>document.querySelector('.sidebar-footer')?.textContent?.includes(`v${v}`),manifest.version,null,{timeout:45000});const data=await page.evaluate(()=>window.desktop.loadData());if(data.accounts[0].openingKopecks!==123456)throw new Error('Data lost during file update');
     await page.screenshot({path:path.join(release,'windows-file-update.png')});
   }else{
     if(!requests.some(r=>r.range))throw new Error('Native updater did not request differential byte ranges');
@@ -45,7 +45,7 @@ try{
   try{currentState=await currentPage?.evaluate(()=>window.desktop?.info());}catch{}
   try{markup=(await currentPage?.evaluate(()=>document.body.innerText))?.slice(0,3000)||'';}catch{}
   try{await currentPage?.screenshot({path:path.join(release,`windows-${mode}-failure.png`)});}catch{}
-  const report={ok:false,mode,error:error.stack||String(error),currentState,requests,console:consoleLines.slice(-40),markup};
+  const report={ok:false,mode,error:error.stack||String(error),url:currentPage?.url(),currentState,requests,console:consoleLines.slice(-40),markup};
   fs.writeFileSync(path.join(release,`windows-${mode}-e2e.json`),JSON.stringify(report,null,2));
   console.error('E2E diagnostic:',JSON.stringify(report));throw error;
 }finally{if(browser)await browser.close().catch(()=>{});if(child&&!child.killed)child.kill();server.close();}
