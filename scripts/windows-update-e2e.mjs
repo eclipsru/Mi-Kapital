@@ -33,13 +33,15 @@ try{
   if(mode==='files'){
     const changed=requests.filter(r=>r.name.startsWith('update-'));if(!changed.length)throw new Error('No changed file downloaded');
     if(changed.some(r=>r.name.includes('manrope')||r.name.includes('react-pNCWXP0n')))throw new Error('Unchanged vendor/font downloaded');
-    await Promise.all([page.waitForEvent('framenavigated'),page.evaluate(()=>window.desktop.installUpdate())]);
+    const navigation=page.waitForEvent('framenavigated',{timeout:45000});
+    await page.evaluate(()=>{setTimeout(()=>void window.desktop.installUpdate(),100);});
+    await navigation;
     await wait(async()=>{const info=await page.evaluate(()=>window.desktop?.info());return info?.version===manifest.version&&await page.evaluate(()=>!!document.querySelector('.sidebar-footer'));},45000);
     const data=await page.evaluate(()=>window.desktop.loadData());if(data.accounts[0].openingKopecks!==123456)throw new Error('Data lost during file update');
     await page.screenshot({path:path.join(release,'windows-file-update.png')});
   }else{
     if(!requests.some(r=>r.range))throw new Error('Native updater did not request differential byte ranges');
-    const exited=new Promise(r=>child.once('exit',r));await page.evaluate(()=>window.desktop.installUpdate());await exited;await browser.close();browser=undefined;
+    const exited=new Promise(r=>child.once('exit',r));await page.evaluate(()=>{setTimeout(()=>void window.desktop.installUpdate(),100);});await exited;await browser.close();browser=undefined;
     await new Promise(r=>setTimeout(r,5000));page=await launch();const info=await page.evaluate(()=>window.desktop.info());if(info.shellVersion!==manifest.version)throw new Error(`Native shell not updated: ${JSON.stringify(info)}`);const data=await page.evaluate(()=>window.desktop.loadData());if(data.accounts[0].openingKopecks!==123456)throw new Error('Data lost during native update');await page.screenshot({path:path.join(release,'windows-native-update.png')});
   }
   fs.writeFileSync(path.join(release,`windows-${mode}-e2e.json`),JSON.stringify({ok:true,version:manifest.version,mode,requests,dataPreserved:true},null,2));console.log(`PASS: real Windows ${mode} update; user data preserved; requests=${requests.length}`);
