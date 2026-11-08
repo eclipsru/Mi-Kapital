@@ -49,7 +49,7 @@ function configureNative() {
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
   autoUpdater.disableWebInstaller = true;
-  if (testServer) { autoUpdater.setFeedURL({ provider:'generic', url:testServer }); autoUpdater.previousBlockmapBaseUrlOverride = testServer; }
+  if (testServer) { autoUpdater.setFeedURL({ provider:'generic', url:testServer, useMultipleRangeRequest:false }); autoUpdater.previousBlockmapBaseUrlOverride = testServer; }
   autoUpdater.on('download-progress', p => emit({ phase:'downloading', mode:'native', percent:Math.round(p.percent), transferred:p.transferred, total:p.total }));
   autoUpdater.on('update-downloaded', info => { nativeDownloaded = true; busy = false; emit({ phase:'ready', mode:'native', targetVersion:info.version, percent:100 }); });
   autoUpdater.on('error', error => { busy = false; emit({ phase:'error', message:`Обновление не установлено: ${error.message}. Ваши данные сохранены.` }); });

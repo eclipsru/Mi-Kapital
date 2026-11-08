@@ -65,7 +65,7 @@ function activeBundle(userData, builtinRoot, builtinVersion, expectedShell) {
     const manifest = validateManifest(JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8')), expectedShell);
     if (manifest.version !== pointer.version) throw new Error('Version mismatch');
     for (const entry of manifest.files) { const buffer = fs.readFileSync(path.join(root, 'dist', entry.path)); if (buffer.length !== entry.size || hash(buffer) !== entry.sha256) throw new Error('Bundle integrity'); }
-    return { root, version: pointer.version, live: true };
+    return { root: path.join(root, 'dist'), version: pointer.version, live: true };
   } catch { return { root: builtinRoot, version: builtinVersion, live: false }; }
 }
 function quarantine(userData) {
