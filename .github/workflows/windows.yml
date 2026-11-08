@@ -112,8 +112,9 @@ jobs:
           Remove-Item release -Recurse -Force
           Copy-Item candidate-release release -Recurse
           Copy-Item baseline-native.exe.blockmap release/Mi-Kapital-Setup-0.0.1.exe.blockmap
-          node scripts/windows-update-e2e.mjs native 2>&1 | Tee-Object -FilePath native-e2e.log
+          node scripts/windows-update-e2e.mjs native > native-e2e.log 2>&1
           $testExit=$LASTEXITCODE
+          Get-Content native-e2e.log
           Copy-Item release/windows-* candidate-release/ -Force -ErrorAction SilentlyContinue
           if ($testExit) {
             $report=Get-Content candidate-release/windows-native-e2e.json -Raw -ErrorAction SilentlyContinue
