@@ -16,7 +16,11 @@ if(!fs.existsSync(exe)||fs.statSync(exe).size<1000000)throw new Error('Windows i
 const blockmap=JSON.parse(zlib.gunzipSync(fs.readFileSync(`${exe}.blockmap`)));
 if(!Array.isArray(blockmap.files?.[0]?.checksums)||!blockmap.files[0].checksums.length)throw new Error('Invalid differential blockmap');
 const yml=fs.readFileSync('release/latest.yml','utf8');
-if(!yml.includes(`Mi-Kapital-Setup-${version}.exe`)||!yml.includes('sha512:')||!yml.includes('blockMapSize:'))throw new Error('latest.yml lacks installer/hash/blockmap');
+// NSIS uses an external .exe.blockmap. blockMapSize is only embedded for NSIS-web/AppImage.
+if(!yml.includes(`Mi-Kapital-Setup-${version}.exe`)||!yml.includes('sha512:'))throw new Error('latest.yml lacks installer/hash');
+if(blockmap.version !== '2' || !blockmap.files[0].sizes?.length || blockmap.files[0].sizes.length !== blockmap.files[0].checksums.length)throw new Error('Invalid external NSIS blockmap');
+const mappedSize = blockmap.files[0].sizes.reduce((a,b)=>a+b,0);
+if(mappedSize !== fs.statSync(exe).size)throw new Error('Blockmap does not cover the entire installer');
 const sha=crypto.createHash('sha512').update(fs.readFileSync(exe)).digest('base64');
 if(!yml.includes(sha))throw new Error('Installer SHA-512 differs from latest.yml');
 console.log(`Verified EXE (${(fs.statSync(exe).size/1048576).toFixed(1)} MiB), SHA-512, latest.yml, ${blockmap.files[0].checksums.length} differential blocks, and ${manifest.files.length} update files.`);
