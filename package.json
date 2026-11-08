@@ -52,9 +52,9 @@
     "publish": [{ "provider": "github", "owner": "eclipsru", "repo": "Mi-Kapital", "releaseType": "release" }],
     "win": { "target": ["nsis"], "icon": "assets/icon.ico" },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Мой капитал",
