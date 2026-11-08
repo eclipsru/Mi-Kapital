@@ -1,0 +1,136 @@
+name: Windows application and verified updates
+on:
+  push:
+    branches: [main, 'arena/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' }
+      - run: npm test
+      - run: npm run build
+      - name: Visual regression and responsive checks
+        run: |
+          npm run preview -- --port 4173 > /tmp/preview.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:4173 > /dev/null && break; sleep 1; done
+          APP_URL=http://127.0.0.1:4173 npm run visual
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-checks
+          path: artifacts/screenshots/
+          retention-days: 14
+  windows:
+    needs: verify
+    runs-on: windows-latest
+    permissions: { contents: write }
+    env:
+      GH_TOKEN: ${{ github.token }}
+      APP_VERSION: 2.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Build candidate installer and file-level updates
+        shell: pwsh
+        run: |
+          npm version $env:APP_VERSION --no-git-tag-version
+          $env:RELEASE_TAG="v$env:APP_VERSION"
+          npm run desktop:build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node scripts/prepare-release.mjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run release:verify
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item release -Destination candidate-release -Recurse
+          Copy-Item dist -Destination candidate-dist -Recurse
+          Copy-Item electron/main.cjs -Destination candidate-main.cjs
+      - name: Build older baseline with the same shell
+        shell: pwsh
+        run: |
+          npm version 0.0.1 --no-git-tag-version --allow-same-version
+          npm run build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          (Get-Content dist/index.html -Raw).Replace('</body>','<!-- baseline --></body>') | Set-Content dist/index.html -NoNewline
+          npx electron-builder --win nsis --publish never
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item release/Mi-Kapital-Setup-0.0.1.exe -Destination baseline-files.exe
+          Copy-Item release/Mi-Kapital-Setup-0.0.1.exe.blockmap -Destination baseline-files.exe.blockmap
+      - name: Test real installed app - changed files only and data preservation
+        shell: pwsh
+        run: |
+          $p=Start-Process -FilePath (Resolve-Path baseline-files.exe) -ArgumentList '/S','/D=C:\MiKapitalTest' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Baseline install failed: $($p.ExitCode)" }
+          Remove-Item release -Recurse -Force
+          Copy-Item candidate-release release -Recurse
+          node scripts/windows-update-e2e.mjs files
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build older baseline with a different shell
+        shell: pwsh
+        run: |
+          Add-Content electron/main.cjs "`n// E2E old shell fingerprint`n"
+          npx electron-builder --win nsis --publish never
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Copy-Item release/Mi-Kapital-Setup-0.0.1.exe -Destination baseline-native.exe
+          Copy-Item release/Mi-Kapital-Setup-0.0.1.exe.blockmap -Destination baseline-native.exe.blockmap
+          Copy-Item candidate-main.cjs electron/main.cjs -Force
+      - name: Test real NSIS differential update and restart
+        shell: pwsh
+        run: |
+          Get-Process Mi-Kapital -ErrorAction SilentlyContinue | Stop-Process -Force
+          $p=Start-Process -FilePath (Resolve-Path baseline-native.exe) -ArgumentList '/S','/D=C:\MiKapitalTest' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Native baseline install failed: $($p.ExitCode)" }
+          Remove-Item release -Recurse -Force
+          Copy-Item candidate-release release -Recurse
+          Copy-Item baseline-native.exe.blockmap release/Mi-Kapital-Setup-0.0.1.exe.blockmap
+          node scripts/windows-update-e2e.mjs native
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-Process Mi-Kapital -ErrorAction SilentlyContinue | Stop-Process -Force
+          Remove-Item release -Recurse -Force
+          Copy-Item candidate-release release -Recurse
+          Copy-Item candidate-dist dist -Recurse -Force
+          npm version $env:APP_VERSION --no-git-tag-version --allow-same-version
+          npm run release:verify
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Upload verified release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            release/Mi-Kapital-Setup-*.exe
+            release/Mi-Kapital-Setup-*.exe.blockmap
+            release/latest.yml
+            release/update-*.gz
+            release/update-manifest.json
+            release/build-info.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload update test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-update-evidence
+          path: |
+            candidate-release/windows-*-e2e.json
+            candidate-release/windows-*-update.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish only after both update paths pass
+        shell: pwsh
+        run: |
+          $tag="v$env:APP_VERSION"
+          $notes="Мой капитал $env:APP_VERSION`n`nWindows 10/11 x64. Скачайте Mi-Kapital-Setup-$env:APP_VERSION.exe и установите один раз.`n`nОбновления: кнопка «Обновления» внутри приложения. Проверены оба пути на установленной Windows-сборке: загрузка только изменившихся файлов и дифференциальное обновление оболочки. Сохранность данных проверена.`n`nСборка без коммерческой Authenticode-подписи; Windows SmartScreen может показать предупреждение.`n`nФайлы update-*.gz, update-manifest.json, latest.yml и .blockmap нужны апдейтеру — не удаляйте их из выпуска."
+          $files=@(Get-ChildItem release -File | Where-Object { $_.Name -match '^Mi-Kapital-Setup-.*\.exe(\.blockmap)?$|^latest\.yml$|^update-.*\.gz$|^update-manifest\.json$|^build-info\.json$' } | ForEach-Object { $_.FullName })
+          gh release create $tag $files --repo ${{ github.repository }} --target ${{ github.sha }} --title "Мой капитал $env:APP_VERSION" --notes $notes --latest
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

@@ -1,457 +1,148 @@
 'use strict';
-
-const { app, BrowserWindow, ipcMain, nativeTheme, protocol, session, shell } = require('electron');
-const fs = require('node:fs');
+const { app, BrowserWindow, ipcMain, protocol, session, shell, dialog, nativeTheme } = require('electron');
 const path = require('node:path');
-const {
-  compareSemver,
-  computeShellHash,
-  httpsDownloadBuffer,
-  quarantineLiveBundle,
-  resolveActiveDist,
-  unpackDistBundle,
-} = require('./updater-core.cjs');
-
-let autoUpdater = null;
-try {
-  ({ autoUpdater } = require('electron-updater'));
-} catch {
-  autoUpdater = null;
+const fs = require('node:fs');
+const { autoUpdater } = require('electron-updater');
+const core = require('./update-core.cjs');
+const { createStore } = require('./store.cjs');
+const ROOT = path.join(__dirname, '..');
+const BUILTIN = path.join(ROOT, 'dist');
+const REPO = 'https://github.com/eclipsru/Mi-Kapital';
+const SHELL = core.shellHash(ROOT);
+const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.woff2':'font/woff2', '.json':'application/json; charset=utf-8', '.ico':'image/x-icon' };
+let win, active, store, watchdog, pending, busy = false;
+let state = { phase:'idle', version:app.getVersion(), shellVersion:app.getVersion(), mode:'none', percent:0, transferred:0, total:0, packaged:app.isPackaged };
+let nativeDownloaded = false;
+let quitting = false;
+const configuredTestServer = process.env.MIKAPITAL_TEST_SERVER || '';
+if (configuredTestServer) { const u = new URL(configuredTestServer); if (u.protocol !== 'http:' || !['127.0.0.1','localhost'].includes(u.hostname)) throw new Error('Test feed must use loopback HTTP'); }
+const testServer = configuredTestServer;
+const feed = testServer ? `${testServer}/update-manifest.json` : `${REPO}/releases/latest/download/update-manifest.json`;
+protocol.registerSchemesAsPrivileged([{ scheme:'app', privileges:{ standard:true, secure:true, supportFetchAPI:true, corsEnabled:true, stream:true } }]);
+if (!app.requestSingleInstanceLock()) app.quit();
+app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+function emit(patch) { state = { ...state, ...patch }; if (win && !win.isDestroyed()) win.webContents.send('updates:state', state); }
+function bootWatch() {
+  clearTimeout(watchdog);
+  if (!active?.live) return;
+  watchdog = setTimeout(() => { if (win && !win.isDestroyed()) { core.quarantine(app.getPath('userData')); active = core.activeBundle(app.getPath('userData'), BUILTIN, app.getVersion(), SHELL); emit({ version:active.version, phase:'idle' }); win.reload(); } }, 15000);
 }
-
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'app',
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-      stream: true,
-    },
-  },
-]);
-
-const GITHUB_OWNER = 'eclipsru';
-const GITHUB_REPO = 'Mi-Kapital';
-const RELEASES_PAGE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-const LATEST_MANIFEST_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest/download/app-update-manifest.json`;
-const LATEST_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-const UPDATE_EVENT = 'app:update:event';
-
-const appRootDir = path.join(__dirname, '..');
-const builtInDistDir = path.join(appRootDir, 'dist');
-const builtInShellHash = (() => {
-  try {
-    return computeShellHash(appRootDir);
-  } catch {
-    return 'unknown';
-  }
-})();
-
-const MIME_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.webm': 'audio/webm',
-  '.mp3': 'audio/mpeg',
-  '.wav': 'audio/wav',
-};
-
-let activeDistState = {
-  mode: 'builtin',
-  version: '1.0.0',
-  distDir: builtInDistDir,
-};
-let pendingManifest = null;
-let pendingInstallMode = null; // 'bundle' | 'installer' | null
-let updateBusy = false;
-let bootConfirmed = false;
-let bootWatchdog = null;
-
-function refreshActiveDistState() {
-  activeDistState = resolveActiveDist({
-    builtInDistDir,
-    builtInVersion: app.getVersion(),
-    builtInShellHash,
-    userDataDir: app.getPath('userData'),
+function trusted(event) { return win && !win.isDestroyed() && event.sender === win.webContents && event.senderFrame?.url.startsWith('app://mi-kapital/'); }
+function registerProtocol() {
+  protocol.handle('app', request => {
+    try {
+      const url = new URL(request.url);
+      if (url.hostname !== 'mi-kapital') return new Response('Not found', { status:404 });
+      const rel = core.safePath(decodeURIComponent(url.pathname).replace(/^\//, '') || 'index.html');
+      const file = path.resolve(active.root, rel);
+      if (!file.startsWith(path.resolve(active.root) + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return new Response('Not found', { status:404 });
+      return new Response(fs.readFileSync(file), { headers:{ 'Content-Type':MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff' } });
+    } catch { return new Response('Bad request', { status:400 }); }
   });
-  return activeDistState;
 }
-
-function getEffectiveVersion() {
-  return activeDistState.version || app.getVersion();
-}
-
-function broadcast(payload) {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send(UPDATE_EVENT, payload);
-    }
-  }
-}
-
-function configureNativeInstallerUpdater() {
-  if (!autoUpdater || !app.isPackaged) return;
-  autoUpdater.autoDownload = true;
+function configureNative() {
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
+  autoUpdater.allowPrerelease = false;
   autoUpdater.disableWebInstaller = true;
-
-  autoUpdater.on('checking-for-update', () => {
-    if (pendingInstallMode === 'installer') broadcast({ type: 'checking' });
-  });
-  autoUpdater.on('update-available', (info) => {
-    pendingInstallMode = 'installer';
-    broadcast({
-      type: 'available',
-      version: info && info.version,
-      mode: 'installer',
-    });
-  });
-  autoUpdater.on('update-not-available', () => {
-    if (pendingInstallMode === 'installer') {
-      pendingInstallMode = null;
-      broadcast({ type: 'none', version: getEffectiveVersion() });
-    }
-  });
-  autoUpdater.on('download-progress', (progress) => {
-    broadcast({
-      type: 'progress',
-      percent: Math.round(progress.percent || 0),
-      transferred: progress.transferred || 0,
-      total: progress.total || 0,
-      mode: 'installer',
-    });
-  });
-  autoUpdater.on('update-downloaded', (info) => {
-    pendingInstallMode = 'installer';
-    updateBusy = false;
-    broadcast({
-      type: 'downloaded',
-      version: (info && info.version) || (pendingManifest && pendingManifest.version),
-      mode: 'installer',
-    });
-  });
-  autoUpdater.on('error', (error) => {
-    updateBusy = false;
-    broadcast({
-      type: 'error',
-      message: (error && error.message) || String(error),
-    });
-  });
+  if (testServer) { autoUpdater.setFeedURL({ provider:'generic', url:testServer }); autoUpdater.previousBlockmapBaseUrlOverride = testServer; }
+  autoUpdater.on('download-progress', p => emit({ phase:'downloading', mode:'native', percent:Math.round(p.percent), transferred:p.transferred, total:p.total }));
+  autoUpdater.on('update-downloaded', info => { nativeDownloaded = true; busy = false; emit({ phase:'ready', mode:'native', targetVersion:info.version, percent:100 }); });
+  autoUpdater.on('error', error => { busy = false; emit({ phase:'error', message:`Обновление не установлено: ${error.message}. Ваши данные сохранены.` }); });
 }
-
-async function fetchRemoteManifest() {
+async function checkUpdates() {
+  if (busy) return;
+  if (nativeDownloaded) { emit({ phase:'ready', mode:'native' }); return; }
+  busy = true; pending = null;
+  emit({ phase:'checking', message:undefined, percent:0, transferred:0, total:0 });
   try {
-    const buf = await httpsDownloadBuffer(`${LATEST_MANIFEST_URL}?t=${Date.now()}`, {
-      headers: { Accept: 'application/json' },
-    });
-    return JSON.parse(buf.toString('utf8'));
-  } catch {
-    const apiBuf = await httpsDownloadBuffer(LATEST_API_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
-    });
-    const release = JSON.parse(apiBuf.toString('utf8'));
-    const assets = Array.isArray(release.assets) ? release.assets : [];
-    const manifestAsset = assets.find((item) => item && item.name === 'app-update-manifest.json');
-    if (!manifestAsset || !manifestAsset.browser_download_url) {
-      return {
-        version: String(release.tag_name || '').replace(/^v/i, ''),
-        tag: release.tag_name,
-        shellHash: 'force-installer',
-      };
-    }
-    const buf = await httpsDownloadBuffer(manifestAsset.browser_download_url, {
-      headers: { Accept: 'application/json' },
-    });
-    return JSON.parse(buf.toString('utf8'));
-  }
-}
-
-async function downloadHotBundle(manifest) {
-  const tag = manifest.tag || `v${manifest.version}`;
-  const bundleUrl = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(manifest.bundleFile)}`;
-  broadcast({
-    type: 'progress',
-    percent: 0,
-    transferred: 0,
-    total: Number(manifest.bundleSize || 0),
-    mode: 'bundle',
-  });
-  const pakBuffer = await httpsDownloadBuffer(bundleUrl, {
-    onProgress: ({ percent, transferred, total }) => {
-      broadcast({
-        type: 'progress',
-        percent,
-        transferred,
-        total: total || Number(manifest.bundleSize || 0),
-        mode: 'bundle',
-      });
-    },
-  });
-
-  const liveBundleRoot = path.join(app.getPath('userData'), 'live-bundle');
-  unpackDistBundle(pakBuffer, manifest.bundleSha256, liveBundleRoot, {
-    expectedShellHash: builtInShellHash,
-  });
-
-  pendingInstallMode = 'bundle';
-  updateBusy = false;
-  broadcast({
-    type: 'downloaded',
-    version: manifest.version,
-    mode: 'bundle',
-    totalBytes: pakBuffer.length,
-  });
-}
-
-async function checkAndDownloadUpdates() {
-  if (updateBusy) return { ok: true, busy: true, version: getEffectiveVersion() };
-  updateBusy = true;
-  broadcast({ type: 'checking' });
-
-  try {
-    const manifest = await fetchRemoteManifest();
-    const currentVersion = getEffectiveVersion();
-
-    if (!manifest || !manifest.version || compareSemver(manifest.version, currentVersion) <= 0) {
-      updateBusy = false;
-      pendingManifest = null;
-      pendingInstallMode = null;
-      broadcast({ type: 'none', version: currentVersion });
-      return { ok: true, available: false, version: currentVersion };
-    }
-
-    pendingManifest = manifest;
-
-    // Fast path (99% of updates): only web UI / business logic changed — download ~130 KB bundle!
-    if (
-      manifest.shellHash === builtInShellHash &&
-      manifest.bundleFile &&
-      manifest.bundleSha256
-    ) {
-      broadcast({
-        type: 'available',
-        version: manifest.version,
-        mode: 'bundle',
-        totalBytes: Number(manifest.bundleSize || 0),
-      });
-      await downloadHotBundle(manifest);
-      return {
-        ok: true,
-        available: true,
-        mode: 'bundle',
-        version: manifest.version,
-      };
-    }
-
-    // Native shell changed: use electron-updater differential blockmap downloader.
-    if (autoUpdater && app.isPackaged) {
-      pendingInstallMode = 'installer';
-      await autoUpdater.checkForUpdates();
-      return {
-        ok: true,
-        available: true,
-        mode: 'installer',
-        version: manifest.version,
-      };
-    }
-
-    updateBusy = false;
-    broadcast({
-      type: 'available',
-      version: manifest.version,
-      mode: 'manual',
-    });
-    return { ok: true, available: true, mode: 'manual', version: manifest.version };
-  } catch (error) {
-    updateBusy = false;
-    const message = (error && error.message) || 'Не удалось проверить обновления';
-    broadcast({ type: 'error', message });
-    return { ok: false, reason: message };
-  }
-}
-
-ipcMain.on('app:boot:ready', () => {
-  bootConfirmed = true;
-  if (bootWatchdog) {
-    clearTimeout(bootWatchdog);
-    bootWatchdog = null;
-  }
-});
-
-ipcMain.handle('app:update:info', () => ({
-  supported: true,
-  isPackaged: app.isPackaged,
-  version: getEffectiveVersion(),
-  shellVersion: app.getVersion(),
-  deliveryMode: activeDistState.mode,
-}));
-
-ipcMain.handle('app:update:check', async () => checkAndDownloadUpdates());
-
-ipcMain.handle('app:update:download', async () => {
-  if (pendingManifest && pendingManifest.shellHash === builtInShellHash && pendingManifest.bundleFile) {
-    try {
-      updateBusy = true;
-      await downloadHotBundle(pendingManifest);
-      return { ok: true };
-    } catch (error) {
-      updateBusy = false;
-      const message = (error && error.message) || 'Не удалось скачать пакет обновления';
-      broadcast({ type: 'error', message });
-      return { ok: false, reason: message };
-    }
-  }
-  if (autoUpdater && app.isPackaged) {
-    try {
+    const manifest = JSON.parse((await core.download(feed, () => {}, { testServer:!!testServer })).toString('utf8'));
+    if (!manifest || !core.compare(manifest.version, '0.0.0')) throw new Error('Неверная версия');
+    if (core.compare(manifest.version, active.version) <= 0) { busy = false; emit({ phase:'idle', targetVersion:undefined, checkedAt:new Date().toISOString(), message:'У вас актуальная версия' }); return; }
+    emit({ phase:'available', targetVersion:manifest.version });
+    try { core.validateManifest(manifest, SHELL); }
+    catch (error) {
+      if (error.code !== 'SHELL_CHANGED') throw error;
+      if (!app.isPackaged) throw new Error('Для обновления оболочки нужна установленная Windows-версия');
+      emit({ phase:'downloading', mode:'native', targetVersion:manifest.version });
+      // CI includes the previous shell's blockmap under its original filename in this release.
+      // GitHub asset URLs are immutable per tag; looking for an old filename in a new tag otherwise returns 404.
+      const result = await autoUpdater.checkForUpdates();
+      if (!result?.updateInfo || core.compare(result.updateInfo.version, active.version) <= 0) throw new Error('Установщик новой версии пока не опубликован');
       await autoUpdater.downloadUpdate();
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, reason: (error && error.message) || 'Не удалось скачать обновление' };
+      return;
     }
-  }
-  return checkAndDownloadUpdates();
-});
-
-ipcMain.handle('app:update:install', () => {
-  if (pendingInstallMode === 'bundle') {
-    const nextState = refreshActiveDistState();
-    pendingInstallMode = null;
-    pendingManifest = null;
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        startBootWatchdog(win);
-        win.webContents.reloadIgnoringCache();
-      }
+    const known = new Set(core.describeDist(BUILTIN).map(f => f.sha256));
+    const userData = app.getPath('userData');
+    for (const f of manifest.files) { const cache = path.join(userData, 'updates', 'cache', f.sha256); try { if (core.hash(fs.readFileSync(cache)) === f.sha256) known.add(f.sha256); } catch {} }
+    const missing = manifest.files.filter(f => !known.has(f.sha256));
+    const total = missing.reduce((n,f) => n + f.size, 0);
+    let transferred = 0;
+    const compressedSizes = new Map();
+    pending = manifest;
+    emit({ phase:'downloading', mode:'files', targetVersion:manifest.version, total, files:missing.length });
+    const base = testServer || `${REPO}/releases/download/${manifest.tag}`;
+    for (const file of missing) {
+      const compressed = await core.download(`${base}/${file.asset}`, (current, length) => { if (length) compressedSizes.set(file.sha256, length); const estimated = [...compressedSizes.values()].reduce((a,b)=>a+b,0); emit({ transferred:Math.min(current, file.size), percent:total ? Math.min(99, Math.round((transferred + Math.min(current, file.size)) / total * 100)) : 0, message:`Загружено ${(estimated/1024).toFixed(1)} КБ сжатых изменений` }); }, { testServer:!!testServer });
+      core.receiveFile(userData, file, compressed);
+      transferred += file.size;
+      emit({ transferred, percent:total ? Math.round(transferred / total * 100) : 100 });
     }
-    broadcast({ type: 'applied', version: nextState.version });
-    return { ok: true, mode: 'bundle', version: nextState.version };
-  }
-  if (autoUpdater && app.isPackaged && pendingInstallMode === 'installer') {
-    setImmediate(() => autoUpdater.quitAndInstall(false, true));
-    return { ok: true, mode: 'installer' };
-  }
-  return { ok: false, reason: 'Нет готового к установке обновления' };
-});
-
-ipcMain.handle('app:update:open-release', async () => {
-  await shell.openExternal(RELEASES_PAGE_URL);
-  return { ok: true };
-});
-
-function registerAppProtocol() {
-  protocol.handle('app', async (request) => {
-    try {
-      const parsed = new URL(request.url);
-      let relPath = decodeURIComponent(parsed.pathname || '/');
-      if (relPath === '/' || !relPath) relPath = '/index.html';
-
-      const baseDir = path.resolve(activeDistState.distDir);
-      let filePath = path.resolve(baseDir, `.${relPath}`);
-      if (!filePath.startsWith(baseDir + path.sep) && filePath !== path.join(baseDir, 'index.html')) {
-        return new Response('Forbidden', { status: 403 });
-      }
-      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-        if (!path.extname(relPath)) {
-          filePath = path.join(baseDir, 'index.html');
-        } else {
-          return new Response('Not Found', { status: 404 });
-        }
-      }
-      const ext = path.extname(filePath).toLowerCase();
-      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-      const data = fs.readFileSync(filePath);
-      return new Response(data, {
-        status: 200,
-        headers: {
-          'Content-Type': contentType,
-          'Cache-Control': 'no-store',
-        },
-      });
-    } catch {
-      return new Response('Internal Error', { status: 500 });
-    }
-  });
+    core.stageBundle(userData, BUILTIN, manifest, SHELL);
+    busy = false;
+    emit({ phase:'ready', mode:'files', percent:100, targetVersion:manifest.version, message:missing.length ? 'Загружены только изменившиеся файлы' : 'Обновление уже загружено' });
+  } catch (error) { busy = false; pending = null; emit({ phase:'error', message:`Не удалось обновиться: ${error.message}. Попробуйте ещё раз; данные останутся на месте.` }); }
 }
-
-function startBootWatchdog(win) {
-  bootConfirmed = false;
-  if (bootWatchdog) clearTimeout(bootWatchdog);
-  if (activeDistState.mode !== 'live-bundle') return;
-  bootWatchdog = setTimeout(() => {
-    if (!bootConfirmed && !win.isDestroyed()) {
-      quarantineLiveBundle(app.getPath('userData'));
-      refreshActiveDistState();
-      win.webContents.reloadIgnoringCache();
-    }
-  }, 8000);
+async function installUpdate() {
+  if (state.phase !== 'ready') return { ok:false, message:'Сначала проверьте и загрузите обновление' };
+  try {
+    await store.flush();
+    if (state.mode === 'files' && pending) {
+      core.activate(app.getPath('userData'), pending, SHELL);
+      active = core.activeBundle(app.getPath('userData'), BUILTIN, app.getVersion(), SHELL);
+      pending = null; nativeDownloaded = false;
+      emit({ version:active.version, phase:'idle', targetVersion:undefined, checkedAt:new Date().toISOString(), message:'Обновление установлено. Данные сохранены.' });
+      bootWatch(); win.reload();
+    } else if (state.mode === 'native' && nativeDownloaded && app.isPackaged) {
+      quitting = true; clearTimeout(watchdog);
+      setImmediate(() => autoUpdater.quitAndInstall(true, true));
+    } else return { ok:false, message:'Обновление ещё не готово' };
+    return { ok:true };
+  } catch (error) { return { ok:false, message:error.message }; }
 }
-
 function createWindow() {
-  const window = new BrowserWindow({
-    width: 1540,
-    height: 960,
-    minWidth: 380,
-    minHeight: 640,
-    title: 'Мой капитал',
-    icon: path.join(appRootDir, 'assets', 'icon.png'),
-    backgroundColor: '#0B0D11',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-
-  window.webContents.on('did-fail-load', () => {
-    if (activeDistState.mode === 'live-bundle') {
-      quarantineLiveBundle(app.getPath('userData'));
-      refreshActiveDistState();
-      window.loadURL('app://mi-kapital/index.html');
-    }
-  });
-
-  startBootWatchdog(window);
-  window.loadURL('app://mi-kapital/index.html');
+  win = new BrowserWindow({ width:1440, height:960, minWidth:760, minHeight:600, title:'Мой капитал', icon:path.join(ROOT,'assets/icon.png'), backgroundColor:'#0B0D11', show:false, autoHideMenuBar:true, webPreferences:{ preload:path.join(__dirname,'preload.cjs'), contextIsolation:true, nodeIntegration:false, sandbox:true } });
+  win.once('ready-to-show', () => win.show());
+  win.webContents.setWindowOpenHandler(() => ({ action:'deny' }));
+  win.webContents.on('will-navigate', event => event.preventDefault());
+  win.webContents.on('did-fail-load', (_e, code, _description, _url, isMainFrame) => { if (isMainFrame && code !== -3 && active.live) { core.quarantine(app.getPath('userData')); active = core.activeBundle(app.getPath('userData'),BUILTIN,app.getVersion(),SHELL); win.loadURL('app://mi-kapital/index.html'); } });
+  win.on('close', event => { if (!quitting) { event.preventDefault(); store.flush().catch(() => undefined).finally(() => { quitting = true; win.close(); }); } });
+  win.on('closed', () => { win = null; });
+  bootWatch(); win.loadURL('app://mi-kapital/index.html');
 }
-
 app.whenReady().then(() => {
-  // Strictly dark theme matching Arenda-Nvk screenshot — never light.
   nativeTheme.themeSource = 'dark';
-  refreshActiveDistState();
-  registerAppProtocol();
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === 'media' || permission === 'audioCapture');
+  store = createStore(app.getPath('userData'));
+  active = core.activeBundle(app.getPath('userData'), BUILTIN, app.getVersion(), SHELL);
+  state.version = active.version;
+  registerProtocol();
+  session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback) => callback(false));
+  ipcMain.handle('info', event => trusted(event) ? state : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('updates:check', event => trusted(event) ? checkUpdates() : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('updates:install', event => trusted(event) ? installUpdate() : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('updates:releases', async event => { if (!trusted(event)) throw new Error('Forbidden'); await shell.openExternal(`${REPO}/releases/latest`); });
+  ipcMain.handle('data:load', event => trusted(event) ? store.load() : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('data:save', (event, data) => trusted(event) ? store.save(data) : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('data:export', async (event, json) => {
+    if (!trusted(event) || typeof json !== 'string' || Buffer.byteLength(json) > 15000000) throw new Error('Forbidden');
+    const result = await dialog.showSaveDialog(win, { title:'Сохранить резервную копию', defaultPath:`Mi-Kapital-${new Date().toISOString().slice(0,10)}.json`, filters:[{ name:'Резервная копия JSON', extensions:['json'] }] });
+    if (result.canceled || !result.filePath) return false;
+    core.atomicWrite(result.filePath, json);
+    return true;
   });
-  configureNativeInstallerUpdater();
-  createWindow();
-
-  // Automatically check for updates shortly after launch and every 30 minutes.
-  const runScheduledCheck = () => {
-    checkAndDownloadUpdates().catch(() => undefined);
-  };
-  setTimeout(runScheduledCheck, 3000);
-  setInterval(runScheduledCheck, 30 * 60 * 1000);
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  ipcMain.on('boot:ready', event => { if (trusted(event)) clearTimeout(watchdog); });
+  configureNative(); createWindow();
+  if (!process.env.MIKAPITAL_TEST_NO_AUTO) { setTimeout(() => checkUpdates(), 5000); setInterval(() => checkUpdates(), 30 * 60 * 1000); }
+}).catch(error => { dialog.showErrorBox('Мой капитал', error.message); app.quit(); });
+app.on('window-all-closed', () => app.quit());

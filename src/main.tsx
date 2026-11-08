@@ -1,14 +1,6 @@
 import React from 'react';
-import { createRoot } from 'react-dom/client';
-import App from './App';
+import ReactDOM from 'react-dom/client';
+import '@fontsource-variable/manrope';
 import './styles.css';
-
-createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
-
-window.requestAnimationFrame(() => {
-  window.desktopUpdater?.notifyBootReady?.();
-});
+import App from './App';
+ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);

@@ -1,0 +1,22 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import zlib from 'node:zlib';
+import { createRequire } from 'node:module';
+const require=createRequire(import.meta.url);const core=require('../electron/update-core.cjs');
+const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));const version=pkg.version;
+const manifest=JSON.parse(fs.readFileSync('release/update-manifest.json','utf8'));
+core.validateManifest(manifest,manifest.shellHash);
+if(manifest.version!==version)throw new Error('Manifest/package version mismatch');
+const expected=core.describeDist('dist');
+if(JSON.stringify(expected)!==JSON.stringify(manifest.files.map(({path,size,sha256})=>({path,size,sha256}))))throw new Error('Manifest does not describe the actual dist');
+for(const file of manifest.files){const raw=zlib.gunzipSync(fs.readFileSync(path.join('release',file.asset)));if(core.hash(raw)!==file.sha256||raw.length!==file.size)throw new Error(`Checksum mismatch: ${file.path}`);}
+const exe=path.join('release',`Mi-Kapital-Setup-${version}.exe`);
+if(!fs.existsSync(exe)||fs.statSync(exe).size<1000000)throw new Error('Windows installer missing');
+const blockmap=JSON.parse(zlib.gunzipSync(fs.readFileSync(`${exe}.blockmap`)));
+if(!Array.isArray(blockmap.files?.[0]?.checksums)||!blockmap.files[0].checksums.length)throw new Error('Invalid differential blockmap');
+const yml=fs.readFileSync('release/latest.yml','utf8');
+if(!yml.includes(`Mi-Kapital-Setup-${version}.exe`)||!yml.includes('sha512:')||!yml.includes('blockMapSize:'))throw new Error('latest.yml lacks installer/hash/blockmap');
+const sha=crypto.createHash('sha512').update(fs.readFileSync(exe)).digest('base64');
+if(!yml.includes(sha))throw new Error('Installer SHA-512 differs from latest.yml');
+console.log(`Verified EXE (${(fs.statSync(exe).size/1048576).toFixed(1)} MiB), SHA-512, latest.yml, ${blockmap.files[0].checksums.length} differential blocks, and ${manifest.files.length} update files.`);
