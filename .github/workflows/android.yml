@@ -41,14 +41,6 @@ jobs:
           node scripts/build-android-assets.mjs
           echo "APP_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "APP_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-      - name: Install Android SDK
-        run: |
-          yes | "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
-          "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0"
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
-      - name: Build signed APK
-        working-directory: android
-        run: gradle --no-daemon assembleRelease
       - name: Require persistent release signing
         shell: bash
         run: |
@@ -58,6 +50,14 @@ jobs:
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mi-kapital.p12"
           echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/mi-kapital.p12" >> "$GITHUB_ENV"
+      - name: Install Android SDK
+        run: |
+          yes | "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
+          "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Build signed APK
+        working-directory: android
+        run: gradle --no-daemon assembleRelease
       - name: Verify signature and package
         shell: bash
         run: |
@@ -68,6 +68,20 @@ jobs:
       - name: Upload APK to published release
         if: github.event_name == 'release'
         run: gh release upload "${{ github.event.release.tag_name }}" Mi-Kapital-mobile.apk Mi-Kapital-mobile.apk.sha256 --clobber
+      - name: Attach APK to the published release for this commit
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          for i in $(seq 1 40); do
+            TAG="$(gh api "repos/${{ github.repository }}/releases" --paginate --jq '.[] | select(.draft==false and .target_commitish=="${{ github.sha }}") | .tag_name' | head -1)"
+            if [[ -n "$TAG" ]]; then
+              gh release upload "$TAG" Mi-Kapital-mobile.apk Mi-Kapital-mobile.apk.sha256 --clobber
+              echo "Attached Android APK to $TAG"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::warning::No published release for this commit yet; APK retained as a branch artifact."
       - name: Retain branch build for inspection
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
