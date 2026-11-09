@@ -2,12 +2,13 @@ export type AccountKind = 'cash' | 'bank' | 'investment' | 'other';
 export type DebtDirection = 'i_owe' | 'owed_to_me';
 export type MovementKind = 'expense' | 'adjustment';
 export interface Account { id: string; name: string; kind: AccountKind; openingKopecks: number; createdAt: string }
-export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string }
+export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; work?: WorkDetails }
 export interface Payment { id: string; amountKopecks: number; date: string; accountId: string; note: string }
 export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; initialAccountId: string | null; payments: Payment[] }
 export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string }
 export interface Plan { income: number; expenses: number; debtPayment: number; months: number; goal: number }
-export interface AppData { schemaVersion: 1; accounts: Account[]; incomes: Income[]; debts: Debt[]; movements: Movement[]; plan: Plan; updatedAt: string }
+export interface WorkPlan { id: string; kind: WorkKind; title: string; date: string; expectedKopecks: number; note: string; createdAt: string; values?: Record<string, string> }
+export interface AppData { schemaVersion: 1; accounts: Account[]; incomes: Income[]; debts: Debt[]; movements: Movement[]; plan: Plan; updatedAt: string; workPlans?: WorkPlan[] }
 export interface LedgerItem { id: string; type: 'income' | 'expense' | 'adjustment' | 'debt' | 'payment'; title: string; subtitle: string; date: string; amount: number; accountId: string | null; debtId?: string; positive: boolean }
 export const MAX_MONEY = 100_000_000_000_00; // 100 billion rubles, in kopecks
 export const incomeCategories = ['Перепродажи', 'Шабашки'] as const;
@@ -17,10 +18,55 @@ export type IncomeCategory = typeof incomeCategories[number];
 export function incomeCategoryOptions(existing?: string): string[] {
   return existing && !incomeCategories.includes(existing as IncomeCategory) ? [existing, ...incomeCategories] : [...incomeCategories];
 }
+export const workKinds = ['Ремонт', 'Отделка', 'Электрика', 'Сантехника', 'Сборка мебели', 'Другое'] as const;
+export type WorkKind = typeof workKinds[number];
+export interface WorkFieldConfig { key: string; label: string; placeholder?: string; required?: boolean }
+export interface WorkDetails { kind: WorkKind; values: Record<string, string> }
+// Базовые виды шабашек. Набор полей можно расширить позже без смены формата данных.
+export const workKindFields: Record<WorkKind, WorkFieldConfig[]> = {
+  'Ремонт': [
+    { key: 'object', label: 'Что ремонтировали', placeholder: 'Например, стиральная машина', required: true },
+    { key: 'scope', label: 'Что сделано', placeholder: 'Замена подшипников, диагностика…' },
+    { key: 'materials', label: 'Материалы / запчасти', placeholder: 'Что куплено для работы' },
+  ],
+  'Отделка': [
+    { key: 'object', label: 'Объект', placeholder: 'Квартира, комната, фасад…', required: true },
+    { key: 'scope', label: 'Вид отделки', placeholder: 'Покраска, плитка, штукатурка…' },
+    { key: 'volume', label: 'Объём', placeholder: 'Например, 18 м²' },
+  ],
+  'Электрика': [
+    { key: 'object', label: 'Объект', placeholder: 'Дом, гараж, щиток…', required: true },
+    { key: 'scope', label: 'Что сделано', placeholder: 'Проводка, розетки, свет…' },
+    { key: 'points', label: 'Точек / приборов', placeholder: 'Например, 6 розеток' },
+  ],
+  'Сантехника': [
+    { key: 'object', label: 'Объект', placeholder: 'Ванная, кухня, стояк…', required: true },
+    { key: 'scope', label: 'Что сделано', placeholder: 'Установка смесителя, труб…' },
+    { key: 'points', label: 'Приборов / точек', placeholder: 'Например, 2 прибора' },
+  ],
+  'Сборка мебели': [
+    { key: 'object', label: 'Что собрали', placeholder: 'Шкаф, кухня, стол…', required: true },
+    { key: 'quantity', label: 'Количество', placeholder: 'Например, 1 шкаф' },
+    { key: 'scope', label: 'Особенности', placeholder: 'Подгонка, фурнитура, вырезы…' },
+  ],
+  'Другое': [
+    { key: 'description', label: 'Описание работы', placeholder: 'Что именно было сделано', required: true },
+  ],
+};
+export function cleanWorkValues(kind: WorkKind, values: Record<string, string>): Record<string, string> {
+  const allowed = new Set(workKindFields[kind].map(f => f.key));
+  return Object.fromEntries(Object.entries(values).filter(([key, value]) => allowed.has(key) && value.trim()).map(([key, value]) => [key, value.trim().slice(0, 500)]));
+}
+export function workTitle(kind: WorkKind, values: Record<string, string>): string {
+  const first = workKindFields[kind].map(f => values[f.key]?.trim()).find(Boolean);
+  return (first ? `${kind}: ${first}` : kind).slice(0, 120);
+}
+export const workPlans = (data: AppData): WorkPlan[] => data.workPlans ?? [];
+export const oddJobIncomes = (data: AppData): Income[] => data.incomes.filter(i => i.category === 'Шабашки');
 export const accountKinds: Record<AccountKind, string> = { cash: 'Наличные', bank: 'Банковский счёт', investment: 'Инвестиции', other: 'Другой актив' };
 export const uid = () => crypto.randomUUID();
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-export const emptyData = (): AppData => ({ schemaVersion: 1, accounts: [], incomes: [], debts: [], movements: [], plan: { income: 0, expenses: 0, debtPayment: 0, months: 12, goal: 0 }, updatedAt: new Date().toISOString() });
+export const emptyData = (): AppData => ({ schemaVersion: 1, accounts: [], incomes: [], debts: [], movements: [], workPlans: [], plan: { income: 0, expenses: 0, debtPayment: 0, months: 12, goal: 0 }, updatedAt: new Date().toISOString() });
 export const money = (value: number, decimals = false) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: decimals || value % 100 !== 0 ? 2 : 0, maximumFractionDigits: 2 }).format(value / 100);
 export const number = (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 export const inputMoney = (value: number) => (value / 100).toFixed(2).replace('.', ',');

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountBalance, accountReferenced, calculatePlan, debtRemaining, emptyData, incomeCategories, incomeCategoryOptions, lastMonths, ledger, money, parseMoney, suggestPlan, today, totals, validDate, type Account, type Debt, type Income } from '../src/core/model';
+import { accountBalance, accountReferenced, calculatePlan, cleanWorkValues, debtRemaining, emptyData, incomeCategories, incomeCategoryOptions, lastMonths, ledger, money, oddJobIncomes, parseMoney, suggestPlan, today, totals, validDate, workKindFields, workKinds, workPlans, workTitle, type Account, type Debt, type Income, type WorkPlan } from '../src/core/model';
 import { parseBackup, serializeBackup, validateData } from '../src/core/storage';
 const account:Account={id:'a',name:'Карта',kind:'bank',openingKopecks:100000,createdAt:'2026-01-01'};
 const income:Income={id:'i',title:'Зарплата',category:'Зарплата',amountKopecks:50000,accountId:'a',date:'2026-11-01',note:''};
@@ -40,6 +40,33 @@ describe('income directions',()=>{
   });
 });
 function sumFor(data:ReturnType<typeof emptyData>,category:string){return data.incomes.filter(i=>i.category===category).reduce((n,i)=>n+i.amountKopecks,0);}
+describe('odd jobs page model',()=>{
+  const plan:WorkPlan={id:'p',kind:'Электрика',title:'Щиток',date:'',expectedKopecks:50000,note:'',createdAt:'2026-01-01'};
+  it('provides work kinds and kind-dependent fields with a stable title helper',()=>{
+    expect(workKinds[0]).toBe('Ремонт');expect(workKindFields['Электрика'].map(f=>f.key)).toEqual(['object','scope','points']);
+    expect(cleanWorkValues('Электрика',{object:' Гараж ',scope:'',unknown:'x'})).toEqual({object:'Гараж'});
+    expect(workTitle('Электрика',{object:'Гараж'})).toBe('Электрика: Гараж');expect(workTitle('Другое',{})).toBe('Другое');
+  });
+  it('counts completed odd jobs as income once and keeps plans out of capital',()=>{
+    const job:Income={...income,id:'job',category:'Шабашки',amountKopecks:20000,date:today(),work:{kind:'Ремонт',values:{object:'Насос'}}};
+    const d={...emptyData(),accounts:[account],incomes:[job],workPlans:[plan]};
+    expect(oddJobIncomes(d).map(i=>i.id)).toEqual(['job']);expect(workPlans(d).length).toBe(1);
+    expect(accountBalance(d,'a')).toBe(120000);expect(totals(d).net).toBe(120000);expect(totals(d).incomeTotal).toBe(20000);
+  });
+  it('roundtrips work details and plans in backups',()=>{
+    const job:Income={...income,id:'job',category:'Шабашки',work:{kind:'Сантехника',values:{object:'Ванная'}}};
+    const d={...emptyData(),accounts:[account],incomes:[job],workPlans:[plan]};
+    expect(parseBackup(serializeBackup(d))).toEqual(d);
+  });
+  it('rejects invalid work details and plans',()=>{
+    const d={...emptyData(),accounts:[account]};
+    expect(()=>validateData({...d,incomes:[{...income,work:{kind:'Космос',values:{}}}]})).toThrow();
+    expect(()=>validateData({...d,incomes:[{...income,work:{kind:'Ремонт',values:{object:1}}}]})).toThrow();
+    expect(()=>validateData({...d,workPlans:[plan,plan]})).toThrow();
+    expect(()=>validateData({...d,workPlans:[{...plan,expectedKopecks:-1}]})).toThrow();
+    expect(()=>validateData({...d,workPlans:[{...plan,date:'2026-02-30'}]})).toThrow();
+  });
+});
 describe('forecast',()=>{
   it('does not deduct principal repayment from net capital twice',()=>{const d={...emptyData(),accounts:[account],debts:[debt]};const plan={income:50000,expenses:20000,debtPayment:10000,months:3,goal:200000};const r=calculatePlan(d,plan);expect(r.free).toBe(30000);expect(r.afterDebt).toBe(20000);expect(r.projected).toBe(160000);expect(r.debtMonths).toBe(3);expect(r.goalMonths).toBe(5);});
   it('handles zero income, achieved goals and negative cash flow',()=>{const d=emptyData();const r=calculatePlan(d,{income:0,expenses:1000,debtPayment:0,months:2,goal:0});expect(r.projected).toBe(-2000);expect(r.goalMonths).toBeNull();expect(r.debtMonths).toBe(0);expect(calculatePlan({...d,accounts:[account]},{income:1000,expenses:0,debtPayment:0,months:2,goal:50000}).goalMonths).toBe(0);});
