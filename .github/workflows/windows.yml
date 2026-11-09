@@ -45,6 +45,11 @@ jobs:
       - name: Build candidate installer and file-level updates
         shell: pwsh
         run: |
+          trap {
+            $detail=($_ | Out-String).Substring(0,[Math]::Min(6000,($_ | Out-String).Length)).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Candidate build failure::$detail"
+            exit 1
+          }
           npm version $env:APP_VERSION --no-git-tag-version
           $env:RELEASE_TAG="v$env:APP_VERSION"
           npm run desktop:build
