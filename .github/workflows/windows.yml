@@ -112,17 +112,8 @@ jobs:
           Copy-Item baseline-native.exe.blockmap release/Mi-Kapital-Setup-0.0.1.exe.blockmap
           $env:ELECTRON_ENABLE_LOGGING="0"
           $env:NATIVE_BASELINE_INSTALLER=(Resolve-Path baseline-native.exe).Path
-          cmd /c "node scripts/windows-update-e2e.mjs native > native-e2e.log 2>&1"
-          $testExit=$LASTEXITCODE
-          Get-Content native-e2e.log -Tail 45
-          Copy-Item release/windows-* candidate-release/ -Force -ErrorAction SilentlyContinue
-          if ($testExit) {
-            $report=Get-Content candidate-release/windows-native-e2e.json -Raw -ErrorAction SilentlyContinue
-            if (!$report) { $report=Get-Content native-e2e.log -Tail 35 -ErrorAction SilentlyContinue | Out-String }
-            $message=$report.Substring(0,[Math]::Min(12000,$report.Length)).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
-            Write-Output "::error title=Windows native E2E diagnostic::$message"
-            exit $testExit
-          }
+          node scripts/windows-update-e2e.mjs native
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-Process Mi-Kapital -ErrorAction SilentlyContinue | Stop-Process -Force
           Remove-Item release -Recurse -Force
           Copy-Item candidate-release release -Recurse
