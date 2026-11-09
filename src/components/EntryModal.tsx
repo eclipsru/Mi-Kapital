@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
-import { accountKinds, categories, debtPaid, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AppData, type Debt, type Income, type Movement, type Payment } from '../core/model';
+import { accountKinds, incomeCategories, incomeCategoryOptions, debtPaid, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment } from '../core/model';
 import { Button, Field, Modal } from './ui';
-export type EntryRequest = { type: 'account'; item?: Account } | { type: 'income'; item?: Income } | { type: 'debt'; item?: Debt } | { type: 'payment'; debt: Debt; item?: Payment } | { type: 'movement'; item?: Movement; kind?: 'expense' | 'adjustment' };
+export type EntryRequest = { type: 'account'; item?: Account } | { type: 'income'; item?: Income; category?: IncomeCategory } | { type: 'debt'; item?: Debt } | { type: 'payment'; debt: Debt; item?: Payment } | { type: 'movement'; item?: Movement; kind?: 'expense' | 'adjustment' };
 export function EntryModal({ request, data, onClose, onSave, onDelete }: { request: EntryRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
   const item = request.type === 'payment' ? request.item : request.item;
   const [name, setName] = useState(item && 'name' in item ? item.name : item && 'title' in item ? item.title : '');
@@ -11,7 +11,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
   const [date, setDate] = useState(item && 'date' in item ? item.date : today());
   const [dueDate, setDueDate] = useState(request.type === 'debt' ? request.item?.dueDate ?? '' : '');
   const [accountId, setAccountId] = useState(item && 'accountId' in item && item.accountId ? item.accountId : request.type === 'debt' ? request.item?.initialAccountId ?? '' : data.accounts[0]?.id ?? '');
-  const [category, setCategory] = useState(request.type === 'income' ? request.item?.category ?? categories[0] : categories[0]);
+  const [category, setCategory] = useState(request.type === 'income' ? request.item?.category ?? request.category ?? incomeCategories[0] : incomeCategories[0]);
   const [counterparty, setCounterparty] = useState(request.type === 'debt' ? request.item?.counterparty ?? '' : '');
   const [direction, setDirection] = useState<'i_owe'|'owed_to_me'>(request.type === 'debt' ? request.item?.direction ?? 'i_owe' : 'i_owe');
   const [movementKind, setMovementKind] = useState<'expense'|'adjustment'>(request.type === 'movement' ? request.item?.kind ?? request.kind ?? 'expense' : 'expense');
@@ -33,7 +33,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
       const account: Account = { id:request.item?.id ?? uid(), name:name.trim().slice(0,80), kind, openingKopecks:value, createdAt:request.item?.createdAt ?? new Date().toISOString() };
       onSave({ ...data, accounts: editing ? data.accounts.map(a=>a.id===account.id?account:a) : [...data.accounts,account] }, editing ? 'Счёт обновлён' : 'Счёт добавлен');
     } else if (request.type === 'income') {
-      if (!categories.includes(category)) return setError('Выберите категорию.');
+      if (!incomeCategoryOptions(request.item?.category).includes(category)) return setError('Выберите направление дохода.');
       const income: Income = { ...common, id:request.item?.id ?? uid(), category };
       onSave({ ...data, incomes:editing ? data.incomes.map(i=>i.id===income.id?income:i) : [...data.incomes,income] }, editing ? 'Доход обновлён. Остаток счёта пересчитан.' : 'Доход добавлен и зачислен на выбранный счёт');
     } else if (request.type === 'movement') {
@@ -71,11 +71,11 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
   return <Modal title={labels[request.type]} subtitle={request.type === 'payment' ? request.debt.title : 'Все суммы в рублях. Изменения сразу отражаются в расчётах.'} onClose={onClose}><form onSubmit={submit} className="entry-form">
     {request.type === 'debt' && <div className="segmented"><button type="button" className={direction==='i_owe'?'active':''} onClick={()=>setDirection('i_owe')}>Я должен</button><button type="button" className={direction==='owed_to_me'?'active':''} onClick={()=>setDirection('owed_to_me')}>Мне должны</button></div>}
     {request.type === 'movement' && <div className="segmented"><button type="button" className={movementKind==='expense'?'active':''} onClick={()=>setMovementKind('expense')}>Расход</button><button type="button" className={movementKind==='adjustment'?'active':''} onClick={()=>setMovementKind('adjustment')}>Корректировка</button></div>}
-    {request.type !== 'payment' && <Field label={request.type==='account'?'Название счёта':'Название'}><input className="inp" required maxLength={request.type==='account'?80:120} value={name} onChange={e=>setName(e.target.value)} placeholder={request.type==='account'?'Например, Основная карта':request.type==='debt'?'Например, заём на ремонт':'Например, зарплата за ноябрь'} autoComplete="off"/></Field>}
+    {request.type !== 'payment' && <Field label={request.type==='account'?'Название счёта':'Название'}><input className="inp" required maxLength={request.type==='account'?80:120} value={name} onChange={e=>setName(e.target.value)} placeholder={request.type==='account'?'Например, Основная карта':request.type==='debt'?'Например, заём на ремонт':request.type==='income'?(category==='Шабашки'?'Например, ремонт на выходных':'Например, продажа инструмента'):'Например, поступление за ноябрь'} autoComplete="off"/></Field>}
     {request.type==='account' && <Field label="Тип счёта"><select className="inp" value={kind} onChange={e=>setKind(e.target.value as AccountKind)}>{Object.entries(accountKinds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></Field>}
     {request.type==='debt' && <Field label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'}><input className="inp" required maxLength={100} value={counterparty} onChange={e=>setCounterparty(e.target.value)} placeholder="Имя человека или название организации"/></Field>}
     <div className="form-row"><Field label={request.type==='account'?'Начальный остаток, ₽':request.type==='debt'?'Изначальная сумма, ₽':'Сумма, ₽'} hint={request.type==='account'?'Деньги, которые уже есть до записанных операций.':movementKind==='adjustment'&&request.type==='movement'?'Можно указать отрицательную сумму.':''}><input className="inp money-input" required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/></Field>{request.type!=='account' && <Field label="Дата"><input className="inp" type="date" required min="1900-01-01" max="2200-12-31" value={date} onChange={e=>setDate(e.target.value)}/></Field>}</div>
-    {request.type==='income' && <Field label="Категория"><select className="inp" value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(c=><option key={c}>{c}</option>)}</select></Field>}
+    {request.type==='income' && <Field label="Направление дохода" hint="Новые поступления учитываются в разделе «Перепродажи» или «Шабашки»."><select className="inp" value={category} onChange={e=>setCategory(e.target.value)}>{incomeCategoryOptions(request.item?.category).map(c=><option key={c}>{c}</option>)}</select></Field>}
     {request.type==='debt' && <Field label="Срок возврата · необязательно"><input className="inp" type="date" min={date} max="2200-12-31" value={dueDate} onChange={e=>setDueDate(e.target.value)}/></Field>}
     {request.type!=='account' && <Field label={request.type==='debt'?'Движение денег при создании':'Счёт'} hint={request.type==='debt'?'Выберите «Уже учтено», если сумма долга не должна менять остаток счёта.':undefined}><select className="inp" required={accountRequired} value={accountId} onChange={e=>setAccountId(e.target.value)}>{request.type==='debt' && <option value="">Уже учтено — не менять счёт</option>}{!data.accounts.length && <option value="">Сначала создайте счёт</option>}{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
     {request.type==='income' && <div className="form-note"><Check size={16}/><span>Доход увеличит остаток счёта и войдёт в капитал один раз.</span></div>}
