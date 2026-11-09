@@ -5,12 +5,13 @@ const fs = require('node:fs');
 const { autoUpdater } = require('electron-updater');
 const core = require('./update-core.cjs');
 const { createStore } = require('./store.cjs');
+const { createSyncServer } = require('./sync-server.cjs');
 const ROOT = path.join(__dirname, '..');
 const BUILTIN = path.join(ROOT, 'dist');
 const REPO = 'https://github.com/eclipsru/Mi-Kapital';
 const SHELL = core.shellHash(ROOT);
 const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.woff2':'font/woff2', '.json':'application/json; charset=utf-8', '.ico':'image/x-icon' };
-let win, active, store, watchdog, pending, busy = false;
+let win, active, store, syncServer, watchdog, pending, busy = false;
 let state = { phase:'idle', version:app.getVersion(), shellVersion:app.getVersion(), mode:'none', percent:0, transferred:0, total:0, packaged:app.isPackaged };
 let nativeDownloaded = false;
 let quitting = false;
@@ -124,9 +125,11 @@ function createWindow() {
   win.on('closed', () => { win = null; });
   bootWatch(); win.loadURL('app://mi-kapital/index.html');
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
   store = createStore(app.getPath('userData'));
+  syncServer = createSyncServer(app.getPath('userData'), store, data => { if (win && !win.isDestroyed()) win.webContents.send('data:changed', data); });
+  await syncServer.start();
   active = core.activeBundle(app.getPath('userData'), BUILTIN, app.getVersion(), SHELL);
   state.version = active.version;
   registerProtocol();
@@ -140,7 +143,10 @@ app.whenReady().then(() => {
   ipcMain.handle('updates:install', event => trusted(event) ? installUpdate() : Promise.reject(new Error('Forbidden')));
   ipcMain.handle('updates:releases', async event => { if (!trusted(event)) throw new Error('Forbidden'); await shell.openExternal(`${REPO}/releases/latest`); });
   ipcMain.handle('data:load', event => trusted(event) ? store.load() : Promise.reject(new Error('Forbidden')));
-  ipcMain.handle('data:save', (event, data) => trusted(event) ? store.save(data) : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('data:save', async (event, data) => { if (!trusted(event)) throw new Error('Forbidden'); await store.save(data); syncServer.changed(); });
+  ipcMain.handle('sync:config', event => trusted(event) ? syncServer.config() : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('sync:info', event => trusted(event) ? syncServer.info() : Promise.reject(new Error('Forbidden')));
+  ipcMain.handle('sync:save-config', async (event, config) => { if (!trusted(event)) throw new Error('Forbidden'); await syncServer.saveConfig(config); });
   ipcMain.handle('data:export', async (event, json) => {
     if (!trusted(event) || typeof json !== 'string' || Buffer.byteLength(json) > 15000000) throw new Error('Forbidden');
     const result = await dialog.showSaveDialog(win, { title:'Сохранить резервную копию', defaultPath:`Mi-Kapital-${new Date().toISOString().slice(0,10)}.json`, filters:[{ name:'Резервная копия JSON', extensions:['json'] }] });
@@ -152,4 +158,4 @@ app.whenReady().then(() => {
   configureNative(); createWindow();
   if (!process.env.MIKAPITAL_TEST_NO_AUTO) { setTimeout(() => checkUpdates(), 5000); setInterval(() => checkUpdates(), 30 * 60 * 1000); }
 }).catch(error => { dialog.showErrorBox('Мой капитал', error.message); app.quit(); });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => { syncServer?.close(); app.quit(); });

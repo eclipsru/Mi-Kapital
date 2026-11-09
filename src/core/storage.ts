@@ -37,18 +37,18 @@ export function validateData(value: unknown): AppData {
   if (!unique(accounts as Account[]) || !unique(incomes as Income[]) || !unique(debts as Debt[]) || !unique(movements as Movement[])) return fail();
   const roles = (accounts as Account[]).map(a => a.role).filter(Boolean);
   if (new Set(roles).size !== roles.length) return fail();
-  if (!incomes.every(i => isObject(i) && text(i.id) && text(i.title, 120) && text(i.category, 60) && amount(i.amountKopecks) && i.amountKopecks > 0 && date(i.date) && typeof i.accountId === 'string' && ids.has(i.accountId) && note(i.note) && (i.work === undefined || workDetails(i.work)) && (i.costKopecks === undefined || amount(i.costKopecks)))) return fail();
-  if (!movements.every(m => isObject(m) && text(m.id) && text(m.title, 120) && ['expense', 'adjustment'].includes(String(m.kind)) && amount(m.amountKopecks, m.kind === 'adjustment') && (m.kind === 'adjustment' || m.amountKopecks > 0) && date(m.date) && typeof m.accountId === 'string' && ids.has(m.accountId) && note(m.note))) return fail();
+  if (!incomes.every(i => isObject(i) && text(i.id) && text(i.title, 120) && text(i.category, 60) && amount(i.amountKopecks) && i.amountKopecks > 0 && date(i.date) && typeof i.accountId === 'string' && ids.has(i.accountId) && note(i.note) && (i.voice === undefined || voice(i.voice)) && (i.work === undefined || workDetails(i.work)) && (i.costKopecks === undefined || amount(i.costKopecks)))) return fail();
+  if (!movements.every(m => isObject(m) && text(m.id) && text(m.title, 120) && ['expense', 'adjustment'].includes(String(m.kind)) && amount(m.amountKopecks, m.kind === 'adjustment') && (m.kind === 'adjustment' || m.amountKopecks > 0) && date(m.date) && typeof m.accountId === 'string' && ids.has(m.accountId) && note(m.note) && (m.voice === undefined || voice(m.voice)))) return fail();
   if (!debts.every(d => {
-    if (!isObject(d) || !text(d.id) || !text(d.title, 120) || !text(d.counterparty, 100) || !['i_owe', 'owed_to_me'].includes(String(d.direction)) || !amount(d.principalKopecks) || d.principalKopecks <= 0 || !date(d.date) || !(d.dueDate === '' || date(d.dueDate)) || !note(d.note) || !(d.initialAccountId === null || typeof d.initialAccountId === 'string' && ids.has(d.initialAccountId)) || !Array.isArray(d.payments) || d.payments.length > 20000) return false;
-    if (!d.payments.every((p: unknown) => isObject(p) && text(p.id) && amount(p.amountKopecks) && p.amountKopecks > 0 && date(p.date) && typeof p.accountId === 'string' && ids.has(p.accountId) && note(p.note))) return false;
+    if (!isObject(d) || !text(d.id) || !text(d.title, 120) || !text(d.counterparty, 100) || !['i_owe', 'owed_to_me'].includes(String(d.direction)) || !amount(d.principalKopecks) || d.principalKopecks <= 0 || !date(d.date) || !(d.dueDate === '' || date(d.dueDate)) || !note(d.note) || (d.voice !== undefined && !voice(d.voice)) || (d.kind !== undefined && !['business','consumer'].includes(String(d.kind))) || !(d.initialAccountId === null || typeof d.initialAccountId === 'string' && ids.has(d.initialAccountId)) || !Array.isArray(d.payments) || d.payments.length > 20000) return false;
+    if (!d.payments.every((p: unknown) => isObject(p) && text(p.id) && amount(p.amountKopecks) && p.amountKopecks > 0 && date(p.date) && typeof p.accountId === 'string' && ids.has(p.accountId) && note(p.note) && (p.voice === undefined || voice(p.voice)))) return false;
     if (!unique(d.payments as Payment[]) || debtPaid(d as unknown as Debt) > d.principalKopecks) return false;
     return true;
   })) return fail();
   const plans = value.workPlans;
   if (plans !== undefined) {
     if (!Array.isArray(plans) || plans.length > 20000) return fail();
-    if (!plans.every(p => isObject(p) && text(p.id) && workKind(p.kind) && text(p.title, 120) && (p.date === '' || date(p.date)) && amount(p.expectedKopecks) && note(p.note) && text(p.createdAt, 40) && (p.values === undefined || workValues(p.values)))) return fail();
+    if (!plans.every(p => isObject(p) && text(p.id) && workKind(p.kind) && text(p.title, 120) && (p.date === '' || date(p.date)) && amount(p.expectedKopecks) && note(p.note) && (p.voice === undefined || voice(p.voice)) && text(p.createdAt, 40) && (p.values === undefined || workValues(p.values)))) return fail();
     if (!unique(plans as WorkPlan[])) return fail();
   }
   const persons = value.people;
@@ -63,11 +63,16 @@ export function validateData(value: unknown): AppData {
     if (!goods.every(p => {
       if (!isObject(p) || !text(p.id) || !text(p.kind, 120) || !date(p.purchaseDate) || !note(p.description) || !text(p.createdAt, 40) || (p.status !== undefined && !['preparing','listed'].includes(String(p.status))) || (p.statusChangedAt !== undefined && !timestamp(p.statusChangedAt)) || (p.preparingStartedAt !== undefined && !timestamp(p.preparingStartedAt)) || (p.listedAt !== undefined && !timestamp(p.listedAt)) || !Array.isArray(p.photos) || p.photos.length > MAX_PRODUCT_PHOTOS || !p.photos.every(photo)) return false;
       if (p.voice !== undefined && !voice(p.voice)) return false;
-      if (!Array.isArray(p.funding) || p.funding.length < 1 || p.funding.length > 2 || !p.funding.every(f => isObject(f) && ['capital', 'pocket'].includes(String(f.source)) && amount(f.amountKopecks) && f.amountKopecks > 0 && typeof f.accountId === 'string' && liquidIds.has(f.accountId)) || new Set(p.funding.map(f => f.source)).size !== p.funding.length || productCost(p as unknown as ResaleProduct) > MAX_MONEY) return false;
+      if (!Array.isArray(p.funding) || p.funding.length < 1 || p.funding.length > 2 || !p.funding.some(f => isObject(f) && f.source === 'capital') || !p.funding.every(f => isObject(f) && ['capital', 'pocket'].includes(String(f.source)) && amount(f.amountKopecks) && f.amountKopecks > 0 && typeof f.accountId === 'string' && liquidIds.has(f.accountId)) || new Set(p.funding.map(f => f.source)).size !== p.funding.length || productCost(p as unknown as ResaleProduct) > MAX_MONEY) return false;
       if (p.investor !== undefined && (!isObject(p.investor) || !text(p.investor.name, 100) || !amount(p.investor.amountKopecks) || !Number.isInteger(p.investor.percentBasisPoints) || Number(p.investor.percentBasisPoints) < 0 || Number(p.investor.percentBasisPoints) > 10000 || !note(p.investor.terms))) return false;
       if (p.sale !== undefined && (!isObject(p.sale) || !amount(p.sale.priceKopecks) || !date(p.sale.date) || p.sale.date < p.purchaseDate || typeof p.sale.accountId !== 'string' || !liquidIds.has(p.sale.accountId))) return false;
       return true;
     })) return fail();
+  }
+  if (value.sync !== undefined) {
+    const sync = value.sync;
+    if (!isObject(sync) || !text(sync.device, 100) || !isObject(sync.clocks) || !isObject(sync.deleted)) return fail();
+    for (const map of [sync.clocks, sync.deleted]) if (Object.keys(map).length > 100000 || !Object.entries(map).every(([key, clock]) => key.length <= 240 && typeof clock === 'string' && /^\d{13}-\d{6}-.{1,100}$/.test(clock))) return fail();
   }
   if (!amount(plan.income) || !amount(plan.expenses) || !amount(plan.debtPayment) || !amount(plan.goal) || !Number.isInteger(plan.months) || Number(plan.months) < 1 || Number(plan.months) > 60) return fail();
   const totalRecords = accounts.length + incomes.length + debts.length + movements.length + (debts as Debt[]).reduce((n, d) => n + d.payments.length, 0) + (Array.isArray(plans) ? plans.length : 0) + (Array.isArray(goods) ? goods.length : 0) + (Array.isArray(persons) ? persons.length : 0);

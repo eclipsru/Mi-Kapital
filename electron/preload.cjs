@@ -1,6 +1,11 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('desktop', Object.freeze({
+  platform: 'windows',
+  syncConfig: () => ipcRenderer.invoke('sync:config'),
+  saveSyncConfig: config => ipcRenderer.invoke('sync:save-config', config),
+  syncInfo: () => ipcRenderer.invoke('sync:info'),
+  onRemoteData: callback => { const listener = (_event, data) => callback(data); ipcRenderer.on('data:changed', listener); return () => ipcRenderer.removeListener('data:changed', listener); },
   info: () => ipcRenderer.invoke('info'),
   checkUpdates: () => ipcRenderer.invoke('updates:check'),
   installUpdate: () => ipcRenderer.invoke('updates:install'),

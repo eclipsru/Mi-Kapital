@@ -12,3 +12,11 @@ coverage/
 Thumbs.db
 playwright-report/
 test-results/
+android/.gradle/
+android/app/build/
+android/local.properties
+*.p12
+*.jks
+*.keystore
+android/app/src/main/assets/web/
+android/app/src/main/assets/builtin.json

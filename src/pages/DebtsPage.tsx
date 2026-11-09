@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, CalendarClock, CheckCheck, HandCoins, Pencil, Plus, Users } from 'lucide-react';
-import { debtPaid, debtRemaining, formatDate, money, people, sum, today, type AppData, type Debt } from '../core/model';
+import { debtKindLabels, debtPaid, debtRemaining, formatDate, money, people, sum, today, type AppData, type Debt } from '../core/model';
 import { AddButton, Badge, Button, Empty, IconButton, PageHead } from '../components/ui';
 import type { EntryRequest } from '../components/EntryModal';
 import type { PersonRequest } from '../components/PersonModal';
@@ -36,7 +36,7 @@ function DebtRow({ debt, data, onEdit }: { debt: Debt; data: AppData; onEdit: (r
   return <article className={`debt-list-item ${closed ? 'closed' : ''}`}>
     <div className="debt-row-main">
       <span className={`account-icon ${debt.direction === 'i_owe' ? 'kind-cash' : 'kind-bank'}`}><HandCoins size={20}/></span>
-      <div className="debt-row-title"><button className="text-link" onClick={() => onEdit({ type: 'debt', item: debt })}>{debt.title}</button><span className="counterparty">{debt.counterparty}</span></div>
+      <div className="debt-row-title"><button className="text-link" onClick={() => onEdit({ type: 'debt', item: debt })}>{debt.title}</button><span className="counterparty">{debt.counterparty} · {debtKindLabels[debt.kind ?? 'business']}</span></div>
       <Badge tone={closed ? 'green' : overdue ? 'red' : debt.direction === 'i_owe' ? 'orange' : 'neutral'}>{closed ? <><CheckCheck size={13}/>Закрыт</> : overdue ? 'Срок прошёл' : debt.direction === 'i_owe' ? 'Я должен' : 'Мне должны'}</Badge>
       <div className="debt-row-amount"><strong>{money(remaining)}</strong><span>из {money(debt.principalKopecks)}</span></div>
       <div className="debt-row-progress"><div className="progress-track"><span style={{ width: `${percent}%` }}/></div><span>{percent}%</span></div>

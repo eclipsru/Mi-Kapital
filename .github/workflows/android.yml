@@ -1,0 +1,78 @@
+name: Android APK and widgets
+on:
+  push:
+    branches: [main, 'arena/**']
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.11.1' }
+      - run: npm ci
+        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' }
+      - run: npm test
+      - name: Build and package web assets
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then VERSION="${{ github.event.release.tag_name }}"; VERSION="${VERSION#v}"; else VERSION="2.0.${{ github.run_number }}"; fi
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm run build
+          node scripts/build-android-assets.mjs
+          echo "APP_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+          echo "APP_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
+      - name: Build signed APK
+        working-directory: android
+        run: gradle --no-daemon assembleRelease
+      - name: Require persistent release signing
+        shell: bash
+        run: |
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEYSTORE_PASSWORD" ]]; then
+            echo "::error title=Android signing not configured::Add ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD repository secrets using the secure signing handoff. Private keys are never published as artifacts."
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mi-kapital.p12"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/mi-kapital.p12" >> "$GITHUB_ENV"
+      - name: Verify signature and package
+        shell: bash
+        run: |
+          APK="$(find "$ANDROID_SDK_ROOT"/build-tools -name apksigner | sort -V | tail -1)"
+          "$APK" verify --verbose android/app/build/outputs/apk/release/app-release.apk
+          cp android/app/build/outputs/apk/release/app-release.apk Mi-Kapital-mobile.apk
+          sha256sum Mi-Kapital-mobile.apk > Mi-Kapital-mobile.apk.sha256
+      - name: Upload APK to published release
+        if: github.event_name == 'release'
+        run: gh release upload "${{ github.event.release.tag_name }}" Mi-Kapital-mobile.apk Mi-Kapital-mobile.apk.sha256 --clobber
+      - name: Retain branch build for inspection
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-signed-apk
+          path: |
+            Mi-Kapital-mobile.apk
+            Mi-Kapital-mobile.apk.sha256
+          retention-days: 14
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mi-kapital.p12"
