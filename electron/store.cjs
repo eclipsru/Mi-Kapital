@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { atomicWrite } = require('./update-core.cjs');
 function validEnvelope(data) {
-  return data && data.schemaVersion === 1 && ['accounts','incomes','debts','movements'].every(key => Array.isArray(data[key]) && data[key].length <= 50000) && data.plan && typeof data.updatedAt === 'string';
+  return data && data.schemaVersion === 1 && ['accounts','incomes','debts','movements'].every(key => Array.isArray(data[key]) && data[key].length <= 50000) && (data.products === undefined || Array.isArray(data.products) && data.products.length <= 20000) && (data.workPlans === undefined || Array.isArray(data.workPlans) && data.workPlans.length <= 20000) && data.plan && typeof data.updatedAt === 'string';
 }
 function readStore(userData) {
   const file = path.join(userData, 'capital-data.json');

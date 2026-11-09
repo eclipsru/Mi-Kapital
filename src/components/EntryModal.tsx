@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
-import { accountKinds, incomeCategories, incomeCategoryOptions, debtPaid, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment } from '../core/model';
+import { accountReferenced, accountKinds, incomeCategories, incomeCategoryOptions, debtPaid, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment, products } from '../core/model';
 import { Button, Field, Modal } from './ui';
-export type EntryRequest = { type: 'account'; item?: Account } | { type: 'income'; item?: Income; category?: IncomeCategory } | { type: 'debt'; item?: Debt } | { type: 'payment'; debt: Debt; item?: Payment } | { type: 'movement'; item?: Movement; kind?: 'expense' | 'adjustment' };
+export type EntryRequest = { type: 'account'; item?: Account } | { type: 'income'; item: Income; category?: IncomeCategory } | { type: 'debt'; item?: Debt } | { type: 'payment'; debt: Debt; item?: Payment } | { type: 'movement'; item?: Movement; kind?: 'expense' | 'adjustment' };
 export function EntryModal({ request, data, onClose, onSave, onDelete }: { request: EntryRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
   const item = request.type === 'payment' ? request.item : request.item;
   const [name, setName] = useState(item && 'name' in item ? item.name : item && 'title' in item ? item.title : '');
@@ -29,6 +29,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
     if (request.type !== 'payment' && !name.trim()) return setError('Укажите название.');
     if (['income','payment','movement'].includes(request.type) && !data.accounts.some(a => a.id === accountId)) return setError('Сначала создайте счёт в разделе «Мой капитал».');
     const common = { title: name.trim().slice(0,120), amountKopecks:value, date, accountId, note:note.trim().slice(0,2000) };
+    if (request.type === 'account' && request.item && ['cash','bank'].includes(request.item.kind) && !['cash','bank'].includes(kind) && products(data).some(p => p.funding.some(f => f.accountId === request.item!.id) || p.sale?.accountId === request.item!.id)) return setError('Этот счёт используется в товарах. Сначала измените источники покупки или счёт продажи.');
     if (request.type === 'account') {
       const account: Account = { id:request.item?.id ?? uid(), name:name.trim().slice(0,80), kind, openingKopecks:value, createdAt:request.item?.createdAt ?? new Date().toISOString() };
       onSave({ ...data, accounts: editing ? data.accounts.map(a=>a.id===account.id?account:a) : [...data.accounts,account] }, editing ? 'Счёт обновлён' : 'Счёт добавлен');
@@ -58,7 +59,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
   function remove() {
     if (!item) return;
     if (request.type === 'account') {
-      const referenced = data.incomes.some(i=>i.accountId===item.id) || data.movements.some(m=>m.accountId===item.id) || data.debts.some(d=>d.initialAccountId===item.id || d.payments.some(p=>p.accountId===item.id));
+      const referenced = accountReferenced(data, item.id);
       if (referenced) return setError('На счёт ссылаются операции. Сначала измените или удалите их — так история останется согласованной.');
       onDelete({...data,accounts:data.accounts.filter(a=>a.id!==item.id)},'Счёт удалён');
     } else if (request.type === 'income') onDelete({...data,incomes:data.incomes.filter(i=>i.id!==item.id)},'Доход удалён. Остаток счёта пересчитан.');
@@ -75,10 +76,10 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
     {request.type==='account' && <Field label="Тип счёта"><select className="inp" value={kind} onChange={e=>setKind(e.target.value as AccountKind)}>{Object.entries(accountKinds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></Field>}
     {request.type==='debt' && <Field label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'}><input className="inp" required maxLength={100} value={counterparty} onChange={e=>setCounterparty(e.target.value)} placeholder="Имя человека или название организации"/></Field>}
     <div className="form-row"><Field label={request.type==='account'?'Начальный остаток, ₽':request.type==='debt'?'Изначальная сумма, ₽':'Сумма, ₽'} hint={request.type==='account'?'Деньги, которые уже есть до записанных операций.':movementKind==='adjustment'&&request.type==='movement'?'Можно указать отрицательную сумму.':''}><input className="inp money-input" required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/></Field>{request.type!=='account' && <Field label="Дата"><input className="inp" type="date" required min="1900-01-01" max="2200-12-31" value={date} onChange={e=>setDate(e.target.value)}/></Field>}</div>
-    {request.type==='income' && <Field label="Направление дохода" hint="Новые поступления учитываются в разделе «Перепродажи» или «Шабашки»."><select className="inp" value={category} onChange={e=>setCategory(e.target.value)}>{incomeCategoryOptions(request.item?.category).map(c=><option key={c}>{c}</option>)}</select></Field>}
+    {request.type==='income' && <Field label="Направление дохода" hint="Прежняя запись. Новые товары добавляйте на странице «Перепродажи», работы — в «Шабашках»."><select className="inp" value={category} onChange={e=>setCategory(e.target.value)}>{incomeCategoryOptions(request.item?.category).map(c=><option key={c}>{c}</option>)}</select></Field>}
     {request.type==='debt' && <Field label="Срок возврата · необязательно"><input className="inp" type="date" min={date} max="2200-12-31" value={dueDate} onChange={e=>setDueDate(e.target.value)}/></Field>}
     {request.type!=='account' && <Field label={request.type==='debt'?'Движение денег при создании':'Счёт'} hint={request.type==='debt'?'Выберите «Уже учтено», если сумма долга не должна менять остаток счёта.':undefined}><select className="inp" required={accountRequired} value={accountId} onChange={e=>setAccountId(e.target.value)}>{request.type==='debt' && <option value="">Уже учтено — не менять счёт</option>}{!data.accounts.length && <option value="">Сначала создайте счёт</option>}{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
-    {request.type==='income' && <div className="form-note"><Check size={16}/><span>Доход увеличит остаток счёта и войдёт в капитал один раз.</span></div>}
+    {request.type==='income' && <div className="form-note"><Check size={16}/><span>Сумма прежней записи остаётся на счёте. В новый личный доход входят 15% продаж товаров и шабашек.</span></div>}
     {request.type==='payment' && <div className="form-note"><Check size={16}/><span>{request.debt.direction==='i_owe'?'Сумма будет списана со счёта, а ваш долг уменьшится.':'Сумма поступит на счёт, а долг вам уменьшится.'}</span></div>}
     {request.type!=='account' && <Field label="Заметка · необязательно"><textarea className="inp" maxLength={2000} rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="Детали, которые важно не забыть"/></Field>}
     {error && <div className="form-error" role="alert"><AlertCircle size={17}/>{error}</div>}

@@ -130,7 +130,11 @@ app.whenReady().then(() => {
   active = core.activeBundle(app.getPath('userData'), BUILTIN, app.getVersion(), SHELL);
   state.version = active.version;
   registerProtocol();
-  session.defaultSession.setPermissionRequestHandler((_wc,_permission,callback) => callback(false));
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const audioOnly = permission === 'media' && details.mediaTypes?.length === 1 && details.mediaTypes[0] === 'audio';
+    callback(Boolean(audioOnly && win && !win.isDestroyed() && wc === win.webContents && wc.getURL().startsWith('app://mi-kapital/')));
+  });
+  session.defaultSession.setPermissionCheckHandler((wc, permission, origin, details) => Boolean(permission === 'media' && details.mediaType === 'audio' && origin === 'app://mi-kapital' && win && !win.isDestroyed() && wc === win.webContents));
   ipcMain.handle('info', event => trusted(event) ? state : Promise.reject(new Error('Forbidden')));
   ipcMain.handle('updates:check', event => trusted(event) ? checkUpdates() : Promise.reject(new Error('Forbidden')));
   ipcMain.handle('updates:install', event => trusted(event) ? installUpdate() : Promise.reject(new Error('Forbidden')));
