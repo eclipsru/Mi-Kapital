@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, CalendarDays, ClipboardList, Hammer, Plus, Search, TrendingUp, Wallet, X } from 'lucide-react';
-import { formatDate, money, monthKey, monthLabel, oddJobIncomes, sum, today, workPlans, type AppData } from '../core/model';
+import { formatDate, money, monthKey, monthLabel, oddJobIncomes, jobEarnings, sum, today, workPlans, type AppData } from '../core/model';
 import { Badge, Button, Empty, PageHead, SectionHead } from '../components/ui';
 import type { EntryRequest } from '../components/EntryModal';
 import type { WorkRequest } from '../components/WorkModal';
@@ -25,7 +25,7 @@ export function OddJobsPage({ data, onEdit, onBack }: { data: AppData; onEdit: (
     <button className="text-link orange-link jobs-back" onClick={onBack}><ArrowLeft size={16}/>К доходам</button>
     <PageHead eyebrow="ДОХОДЫ · РАЗОВЫЕ РАБОТЫ" title="Шабашки" description="Отдельная страница шабашек: сводка сверху, выполненное и планы ниже."/>
     <div className="jobs-summary">
-      <section className="panel jobs-summary-card"><span className="metric-icon green"><TrendingUp size={22}/></span><div><span className="metric-label">Выполнено {periodLabel}</span><strong>{money(doneTotal)}</strong><small>{monthJobs.length} работ · уже в капитале</small></div></section>
+      <section className="panel jobs-summary-card"><span className="metric-icon green"><TrendingUp size={22}/></span><div><span className="metric-label">Выполнено {periodLabel}</span><strong>{money(doneTotal)}</strong><small>{monthJobs.length} работ · ваш доход 15%: {money(jobEarnings(data, month))}</small></div></section>
       <section className="panel jobs-summary-card"><span className="metric-icon orange"><ClipboardList size={22}/></span><div><span className="metric-label">Запланировано</span><strong>{money(plannedTotal)}</strong><small>{plans.length} в плане · пока не в капитале</small></div></section>
       <section className="panel jobs-summary-card"><span className="metric-icon green"><Wallet size={22}/></span><div><span className="metric-label">Всего заработано на шабашках</span><strong>{money(allTotal)}</strong><small>{jobs.length} выполненных работ за всё время</small></div></section>
     </div>

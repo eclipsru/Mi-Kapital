@@ -105,7 +105,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
           {data.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </Field>}
-      {completed && <div className="form-note"><Check size={16}/><span>Выполненная шабашка увеличит остаток счёта и войдёт в капитал один раз.</span></div>}
+      {completed && <div className="form-note"><Check size={16}/><span>На счёт поступит вся сумма. В личный доход за месяц войдут 15% — один раз.</span></div>}
       {!completed && <div className="form-note"><Check size={16}/><span>План пока не меняет капитал. Позже свяжем его с выполненной работой.</span></div>}
       <Field label="Заметка · необязательно">
         <textarea className="inp" maxLength={2000} rows={2} value={note} placeholder="Детали, которые важно не забыть" onChange={e => setNote(e.target.value)}/>
