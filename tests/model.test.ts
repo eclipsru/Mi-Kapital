@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountBalance, accountReferenced, calculatePlan, cleanWorkValues, debtRemaining, emptyData, incomeCategories, incomeCategoryOptions, lastMonths, ledger, money, oddJobIncomes, parseMoney, suggestPlan, today, totals, shareKopecks, parsePercent, saleBreakdown, productCost, inventoryValue, earnedIncome, resaleEarnings, jobEarnings, products, validDate, workKindFields, workKinds, workPlans, workTitle, type Account, type Debt, type Income, type WorkPlan, type ResaleProduct } from '../src/core/model';
+import { accountBalance, accountReferenced, allocations, calculatePlan, capitalRemainder, cleanWorkValues, debtRemaining, emptyData, formatDuration, incomeCategories, incomeCategoryOptions, jobNetProfit, lastMonths, ledger, money, oddJobIncomes, parseMoney, people, productStatus, profitAllocation, resaleInventoryValue, statusDurations, suggestPlan, today, totals, shareKopecks, parsePercent, saleBreakdown, productCost, inventoryValue, earnedIncome, resaleEarnings, jobEarnings, products, validDate, workKindFields, workKinds, workPlans, workTitle, type Account, type Debt, type Income, type WorkPlan, type ResaleProduct } from '../src/core/model';
 import { parseBackup, serializeBackup, validateData } from '../src/core/storage';
 const account:Account={id:'a',name:'Карта',kind:'bank',openingKopecks:100000,createdAt:'2026-01-01'};
 const income:Income={id:'i',title:'Зарплата',category:'Зарплата',amountKopecks:50000,accountId:'a',date:'2026-11-01',note:''};
@@ -34,8 +34,8 @@ describe('income directions',()=>{
     const previous={...resale,id:'previous',amountKopecks:40000,date:`${lastMonths(2)[0]}-05`};
     const d={...emptyData(),accounts:[account],incomes:[income,resale,jobs,previous]};
     expect(sumFor(d,'Перепродажи')).toBe(70000);expect(sumFor(d,'Шабашки')).toBe(20000);
-    expect(totals(d).incomeMonth).toBe(3000);expect(totals(d).incomeTotal).toBe(3000);
-    expect(accountBalance(d,'a')).toBe(240000);expect(totals(d).onHand).toBe(240000);
+    expect(totals(d).incomeMonth).toBe(20000);expect(totals(d).incomeTotal).toBe(20000);
+    expect(accountBalance(d,'a')).toBe(240000);expect(totals(d).onHand).toBe(223000);
     expect(totals({...d,incomes:d.incomes.filter(i=>i.category!=='Шабашки')}).onHand).toBe(220000);
   });
 });
@@ -51,7 +51,7 @@ describe('odd jobs page model',()=>{
     const job:Income={...income,id:'job',category:'Шабашки',amountKopecks:20000,date:today(),work:{kind:'Ремонт',values:{object:'Насос'}}};
     const d={...emptyData(),accounts:[account],incomes:[job],workPlans:[plan]};
     expect(oddJobIncomes(d).map(i=>i.id)).toEqual(['job']);expect(workPlans(d).length).toBe(1);
-    expect(accountBalance(d,'a')).toBe(120000);expect(totals(d).onHand).toBe(120000);expect(totals(d).incomeTotal).toBe(3000);
+    expect(accountBalance(d,'a')).toBe(120000);expect(totals(d).onHand).toBe(103000);expect(totals(d).incomeTotal).toBe(20000);
   });
   it('roundtrips work details and plans in backups',()=>{
     const job:Income={...income,id:'job',category:'Шабашки',work:{kind:'Сантехника',values:{object:'Ванная'}}};
@@ -76,7 +76,7 @@ describe('resale products and personal income',()=>{
   it('deducts investor profit share before 15%, returns purchase cost plus earnings exactly once',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
     expect(saleBreakdown(sold)).toMatchObject({profit:500000,investorKopecks:100000,personalProfit:400000,earnedKopecks:60000,returnedKopecks:1060000,remainderKopecks:340000});
-    expect(accountBalance(d,'a')).toBe(160000);expect(totals(d).onHand).toBe(160000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(60000);expect(resaleEarnings(d, today().slice(0,7))).toBe(60000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
+    expect(accountBalance(d,'a')).toBe(160000);expect(totals(d).onHand).toBe(160000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(400000);expect(resaleEarnings(d, today().slice(0,7))).toBe(400000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
   });
   it('does not invent earnings at break-even and applies a full loss to cash',()=>{
     const even={...product,sale:{priceKopecks:1000000,date:today(),accountId:'a'}};expect(saleBreakdown(even).earnedKopecks).toBe(0);expect(totals({...emptyData(),accounts:[account],products:[even]}).onHand).toBe(100000);
@@ -85,7 +85,7 @@ describe('resale products and personal income',()=>{
   it('uses exact kopeck rounding and excludes debt principals and non-cash accounts from on-hand',()=>{
     expect(shareKopecks(1,1500)).toBe(0);expect(shareKopecks(10,1500)).toBe(2);expect(shareKopecks(1000000000000,1500)).toBe(150000000000);expect(parsePercent('12,5')).toBe(1250);expect(parsePercent('100,01')).toBeNull();
     const d={...emptyData(),accounts:[account,{...account,id:'inv',kind:'investment' as const,openingKopecks:500000}],debts:[debt,{...debt,id:'d2',direction:'owed_to_me' as const}],incomes:[{...income,category:'Шабашки',date:today(),amountKopecks:100001}]};
-    expect(totals(d).onHand).toBe(200001);expect(totals(d).assets).toBe(0);expect(jobEarnings(d,today().slice(0,7))).toBe(15000);expect(earnedIncome(d)).toBe(15000);
+    expect(totals(d).onHand).toBe(115000);expect(totals(d).assets).toBe(0);expect(jobEarnings(d,today().slice(0,7))).toBe(100001);expect(earnedIncome(d)).toBe(100001);
   });
   it('reverses edits, sale cancellation and deletion without duplicate movements',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
@@ -100,6 +100,53 @@ describe('resale products and personal income',()=>{
     const d={...emptyData(),accounts:[account],products:[product]};
     for(const bad of [{...product,funding:[]},{...product,funding:[product.funding[0],product.funding[0]]},{...product,funding:[{...product.funding[0],accountId:'missing'}]},{...product,investor:{...product.investor!,percentBasisPoints:10001}},{...product,sale:{priceKopecks:100,date:'2025-01-01',accountId:'a'}},{...product,photos:['data:image/svg+xml;base64,PHN2Zz4=']},{...product,voice:{mimeType:'audio/webm',dataUrl:'javascript:alert(1)',durationSeconds:1}}])expect(()=>validateData({...d,products:[bad]})).toThrow();
     expect(()=>validateData({...d,products:[product,product]})).toThrow();
+  });
+});
+
+describe('net-profit allocation and capital example',()=>{
+  it('splits positive net profit 15/15/70 and gives rounding remainder to hand',()=>{
+    expect(profitAllocation(100001)).toEqual({capital:15000,debt:15000,hand:70001,total:100001});
+    expect(profitAllocation(-500)).toEqual({capital:0,debt:0,hand:0,total:0});
+  });
+  it('matches the chainsaw and odd-job example: 395 capital, 195/910/195 role cards',()=>{
+    const start={...account,openingKopecks:20000,role:'capital' as const};
+    const chainsaw:ResaleProduct={id:'saw',kind:'Бензопила',purchaseDate:today(),funding:[{source:'capital',accountId:'a',amountKopecks:20000}],description:'',photos:[],createdAt:new Date().toISOString()};
+    const job:Income={...income,id:'job',category:'Шабашки',amountKopecks:100000,date:today()};
+    const bought={...emptyData(),accounts:[start],products:[chainsaw]};
+    expect(capitalRemainder(bought)).toBe(0);expect(totals(bought).assets).toBe(20000);expect(totals(bought).totalCapital).toBe(20000);
+    const sold={...chainsaw,sale:{priceKopecks:50000,date:today(),accountId:'a'}};
+    const d={...emptyData(),accounts:[start],products:[sold],incomes:[job]};
+    expect(totals(d).remainder).toBe(39500);expect(totals(d).totalCapital).toBe(39500);expect(totals(d).assets).toBe(0);
+    expect(allocations(d)).toEqual({capital:19500,debt:19500,hand:91000,total:130000});
+    expect(resaleInventoryValue({...bought,products:[{...chainsaw,investor:{name:'Игорь',amountKopecks:5000,percentBasisPoints:0,terms:''}}]})).toBe(25000);
+  });
+  it('keeps role accruals untouched by expenses and debt payments',()=>{
+    const job:Income={...income,id:'job',category:'Шабашки',amountKopecks:100000,date:today()};
+    const d={...emptyData(),accounts:[account],incomes:[job],movements:[{id:'m',kind:'expense' as const,title:'Расход',amountKopecks:5000,date:today(),accountId:'a',note:''}],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:1000,date:today(),accountId:'a',note:''}]}]};
+    expect(allocations(d)).toEqual({capital:15000,debt:15000,hand:70000,total:100000});
+    expect(totals(d).remainder).toBe(139000);
+  });
+  it('computes job net profit after costs',()=>{
+    expect(jobNetProfit({...income,category:'Шабашки',amountKopecks:100000,costKopecks:25000})).toBe(75000);
+    expect(jobNetProfit({...income,category:'Шабашки',amountKopecks:100000})).toBe(100000);
+  });
+});
+describe('people, roles and product status',()=>{
+  it('roundtrips people and rejects duplicate names or duplicate account roles',()=>{
+    const person={id:'p1',name:'Алексей',createdAt:new Date().toISOString()};
+    const d={...emptyData(),accounts:[{...account,role:'capital' as const}],people:[person]};
+    expect(parseBackup(serializeBackup(d))).toEqual(d);expect(people(d)).toEqual([person]);
+    expect(()=>validateData({...d,people:[person,{...person,id:'p2',name:'алексей'}]})).toThrow();
+    expect(()=>validateData({...d,accounts:[...d.accounts,{...account,id:'a2',role:'capital' as const}]})).toThrow();
+  });
+  it('derives product status and cumulative state durations',()=>{
+    const created='2026-11-01T10:00:00.000Z';const listed='2026-11-02T10:00:00.000Z';const now=Date.parse('2026-11-04T12:00:00.000Z');
+    const p:ResaleProduct={id:'g',kind:'Телефон',purchaseDate:'2026-11-01',funding:[{source:'capital',accountId:'a',amountKopecks:100}],description:'',photos:[],createdAt:created,preparingStartedAt:created,status:'listed',listedAt:listed,statusChangedAt:listed,sale:{priceKopecks:200,date:'2026-11-03',accountId:'a'}};
+    expect(productStatus(p)).toBe('sold');
+    expect(statusDurations(p,now)).toEqual({preparingMs:86400000,listedMs:93600000,soldMs:86400000});
+    expect(formatDuration(86400000)).toBe('1 д');expect(formatDuration(3600000)).toBe('1 ч');expect(formatDuration(1000)).toBe('меньше минуты');
+    expect(()=>validateData({...emptyData(),accounts:[account],products:[{...p,status:'unknown'}]})).toThrow();
+    expect(()=>validateData({...emptyData(),accounts:[account],products:[{...p,listedAt:'not-a-date'}]})).toThrow();
   });
 });
 

@@ -1,10 +1,11 @@
-import { accountKinds, emptyData, MAX_MONEY, MAX_PRODUCT_PHOTOS, MAX_PHOTO_CHARS, MAX_VOICE_CHARS, MAX_VOICE_SECONDS, MAX_SAVE_BYTES, validDate, debtPaid, productCost, workKinds, type AppData, type Account, type Income, type Debt, type Movement, type Payment, type WorkDetails, type WorkKind, type WorkPlan, type ResaleProduct } from './model';
+import { accountKinds, emptyData, MAX_MONEY, MAX_PRODUCT_PHOTOS, MAX_PHOTO_CHARS, MAX_VOICE_CHARS, MAX_VOICE_SECONDS, MAX_SAVE_BYTES, validDate, debtPaid, productCost, workKinds, type AppData, type Account, type Income, type Debt, type Movement, type Payment, type WorkDetails, type WorkKind, type WorkPlan, type ResaleProduct, type Person } from './model';
 const KEY = 'mi-kapital.v2.local';
 const isObject = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 const text = (x: unknown, max = 200): x is string => typeof x === 'string' && x.trim().length > 0 && x.length <= max;
 const note = (x: unknown): x is string => typeof x === 'string' && x.length <= 2000;
 const amount = (x: unknown, signed = false): x is number => typeof x === 'number' && Number.isSafeInteger(x) && Math.abs(x) <= MAX_MONEY && (signed || x >= 0);
 const date = (x: unknown): x is string => typeof x === 'string' && validDate(x);
+const timestamp = (x: unknown): x is string => typeof x === 'string' && x.length <= 40 && Number.isFinite(Date.parse(x));
 const workKind = (x: unknown): x is WorkKind => typeof x === 'string' && (workKinds as readonly string[]).includes(x);
 const workValues = (x: unknown): x is Record<string, string> => isObject(x) && Object.keys(x).length <= 20 && Object.entries(x).every(([key, value]) => key.length <= 40 && typeof value === 'string' && value.length <= 500);
 const workDetails = (x: unknown): x is WorkDetails => isObject(x) && workKind(x.kind) && workValues(x.values);
@@ -30,11 +31,13 @@ export function validateData(value: unknown): AppData {
   const debts = value.debts as unknown[];
   const movements = value.movements as unknown[];
   const plan = value.plan;
-  if (!accounts.every(a => isObject(a) && text(a.id) && text(a.name, 80) && typeof a.kind === 'string' && Object.prototype.hasOwnProperty.call(accountKinds, a.kind) && amount(a.openingKopecks, true) && text(a.createdAt, 40))) return fail();
+  if (!accounts.every(a => isObject(a) && text(a.id) && text(a.name, 80) && typeof a.kind === 'string' && Object.prototype.hasOwnProperty.call(accountKinds, a.kind) && amount(a.openingKopecks, true) && text(a.createdAt, 40) && (a.role === undefined || ['capital','debt','hand'].includes(String(a.role))))) return fail();
   const ids = new Set((accounts as Account[]).map(a => a.id));
   const liquidIds = new Set((accounts as Account[]).filter(a => a.kind === 'cash' || a.kind === 'bank').map(a => a.id));
   if (!unique(accounts as Account[]) || !unique(incomes as Income[]) || !unique(debts as Debt[]) || !unique(movements as Movement[])) return fail();
-  if (!incomes.every(i => isObject(i) && text(i.id) && text(i.title, 120) && text(i.category, 60) && amount(i.amountKopecks) && i.amountKopecks > 0 && date(i.date) && typeof i.accountId === 'string' && ids.has(i.accountId) && note(i.note) && (i.work === undefined || workDetails(i.work)))) return fail();
+  const roles = (accounts as Account[]).map(a => a.role).filter(Boolean);
+  if (new Set(roles).size !== roles.length) return fail();
+  if (!incomes.every(i => isObject(i) && text(i.id) && text(i.title, 120) && text(i.category, 60) && amount(i.amountKopecks) && i.amountKopecks > 0 && date(i.date) && typeof i.accountId === 'string' && ids.has(i.accountId) && note(i.note) && (i.work === undefined || workDetails(i.work)) && (i.costKopecks === undefined || amount(i.costKopecks)))) return fail();
   if (!movements.every(m => isObject(m) && text(m.id) && text(m.title, 120) && ['expense', 'adjustment'].includes(String(m.kind)) && amount(m.amountKopecks, m.kind === 'adjustment') && (m.kind === 'adjustment' || m.amountKopecks > 0) && date(m.date) && typeof m.accountId === 'string' && ids.has(m.accountId) && note(m.note))) return fail();
   if (!debts.every(d => {
     if (!isObject(d) || !text(d.id) || !text(d.title, 120) || !text(d.counterparty, 100) || !['i_owe', 'owed_to_me'].includes(String(d.direction)) || !amount(d.principalKopecks) || d.principalKopecks <= 0 || !date(d.date) || !(d.dueDate === '' || date(d.dueDate)) || !note(d.note) || !(d.initialAccountId === null || typeof d.initialAccountId === 'string' && ids.has(d.initialAccountId)) || !Array.isArray(d.payments) || d.payments.length > 20000) return false;
@@ -48,11 +51,17 @@ export function validateData(value: unknown): AppData {
     if (!plans.every(p => isObject(p) && text(p.id) && workKind(p.kind) && text(p.title, 120) && (p.date === '' || date(p.date)) && amount(p.expectedKopecks) && note(p.note) && text(p.createdAt, 40) && (p.values === undefined || workValues(p.values)))) return fail();
     if (!unique(plans as WorkPlan[])) return fail();
   }
+  const persons = value.people;
+  if (persons !== undefined) {
+    if (!Array.isArray(persons) || persons.length > 20000 || !unique(persons as Person[])) return fail();
+    if (!persons.every(p => isObject(p) && text(p.id) && text(p.name, 100) && text(p.createdAt, 40))) return fail();
+    if (new Set((persons as Person[]).map(p => p.name.trim().toLowerCase())).size !== persons.length) return fail();
+  }
   const goods = value.products;
   if (goods !== undefined) {
     if (!Array.isArray(goods) || goods.length > 20000 || !unique(goods as ResaleProduct[])) return fail();
     if (!goods.every(p => {
-      if (!isObject(p) || !text(p.id) || !text(p.kind, 120) || !date(p.purchaseDate) || !note(p.description) || !text(p.createdAt, 40) || !Array.isArray(p.photos) || p.photos.length > MAX_PRODUCT_PHOTOS || !p.photos.every(photo)) return false;
+      if (!isObject(p) || !text(p.id) || !text(p.kind, 120) || !date(p.purchaseDate) || !note(p.description) || !text(p.createdAt, 40) || (p.status !== undefined && !['preparing','listed'].includes(String(p.status))) || (p.statusChangedAt !== undefined && !timestamp(p.statusChangedAt)) || (p.preparingStartedAt !== undefined && !timestamp(p.preparingStartedAt)) || (p.listedAt !== undefined && !timestamp(p.listedAt)) || !Array.isArray(p.photos) || p.photos.length > MAX_PRODUCT_PHOTOS || !p.photos.every(photo)) return false;
       if (p.voice !== undefined && !voice(p.voice)) return false;
       if (!Array.isArray(p.funding) || p.funding.length < 1 || p.funding.length > 2 || !p.funding.every(f => isObject(f) && ['capital', 'pocket'].includes(String(f.source)) && amount(f.amountKopecks) && f.amountKopecks > 0 && typeof f.accountId === 'string' && liquidIds.has(f.accountId)) || new Set(p.funding.map(f => f.source)).size !== p.funding.length || productCost(p as unknown as ResaleProduct) > MAX_MONEY) return false;
       if (p.investor !== undefined && (!isObject(p.investor) || !text(p.investor.name, 100) || !amount(p.investor.amountKopecks) || !Number.isInteger(p.investor.percentBasisPoints) || Number(p.investor.percentBasisPoints) < 0 || Number(p.investor.percentBasisPoints) > 10000 || !note(p.investor.terms))) return false;
@@ -61,7 +70,7 @@ export function validateData(value: unknown): AppData {
     })) return fail();
   }
   if (!amount(plan.income) || !amount(plan.expenses) || !amount(plan.debtPayment) || !amount(plan.goal) || !Number.isInteger(plan.months) || Number(plan.months) < 1 || Number(plan.months) > 60) return fail();
-  const totalRecords = accounts.length + incomes.length + debts.length + movements.length + (debts as Debt[]).reduce((n, d) => n + d.payments.length, 0) + (Array.isArray(plans) ? plans.length : 0) + (Array.isArray(goods) ? goods.length : 0);
+  const totalRecords = accounts.length + incomes.length + debts.length + movements.length + (debts as Debt[]).reduce((n, d) => n + d.payments.length, 0) + (Array.isArray(plans) ? plans.length : 0) + (Array.isArray(goods) ? goods.length : 0) + (Array.isArray(persons) ? persons.length : 0);
   if (totalRecords > 50000) return fail();
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_SAVE_BYTES) throw new Error('Данные с фото и аудио занимают больше 14 МБ. Экспортируйте копию и удалите ненужные вложения.');
   return JSON.parse(JSON.stringify(value)) as AppData;

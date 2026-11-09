@@ -1,8 +1,10 @@
 export type AccountKind = 'cash' | 'bank' | 'investment' | 'other';
 export type DebtDirection = 'i_owe' | 'owed_to_me';
 export type MovementKind = 'expense' | 'adjustment';
-export interface Account { id: string; name: string; kind: AccountKind; openingKopecks: number; createdAt: string }
-export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; work?: WorkDetails }
+export type AccountRole = 'capital' | 'debt' | 'hand';
+export interface Account { id: string; name: string; kind: AccountKind; openingKopecks: number; createdAt: string; role?: AccountRole }
+export interface Person { id: string; name: string; createdAt: string }
+export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; work?: WorkDetails; costKopecks?: number }
 export interface Payment { id: string; amountKopecks: number; date: string; accountId: string; note: string }
 export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; initialAccountId: string | null; payments: Payment[] }
 export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string }
@@ -13,8 +15,9 @@ export interface ProductFunding { source: FundingSource; accountId: string; amou
 export interface Investor { name: string; amountKopecks: number; percentBasisPoints: number; terms: string }
 export interface VoiceNote { mimeType: string; dataUrl: string; durationSeconds: number }
 export interface ProductSale { priceKopecks: number; date: string; accountId: string }
-export interface ResaleProduct { id: string; kind: string; purchaseDate: string; funding: ProductFunding[]; description: string; photos: string[]; voice?: VoiceNote; investor?: Investor; sale?: ProductSale; createdAt: string }
-export interface AppData { schemaVersion: 1; accounts: Account[]; incomes: Income[]; debts: Debt[]; movements: Movement[]; plan: Plan; updatedAt: string; workPlans?: WorkPlan[]; products?: ResaleProduct[] }
+export type ProductStatus = 'preparing' | 'listed';
+export interface ResaleProduct { id: string; kind: string; purchaseDate: string; funding: ProductFunding[]; description: string; photos: string[]; voice?: VoiceNote; investor?: Investor; sale?: ProductSale; createdAt: string; status?: ProductStatus; statusChangedAt?: string; preparingStartedAt?: string; listedAt?: string }
+export interface AppData { schemaVersion: 1; accounts: Account[]; incomes: Income[]; debts: Debt[]; movements: Movement[]; plan: Plan; updatedAt: string; workPlans?: WorkPlan[]; products?: ResaleProduct[]; people?: Person[] }
 export interface LedgerItem { id: string; type: 'income' | 'expense' | 'adjustment' | 'debt' | 'payment' | 'product-purchase' | 'product-sale'; title: string; subtitle: string; date: string; amount: number; accountId: string | null; debtId?: string; positive: boolean }
 export const MAX_MONEY = 100_000_000_000_00; // 100 billion rubles, in kopecks
 export const PERSONAL_SHARE_BPS = 1500;
@@ -26,6 +29,12 @@ export const MAX_SAVE_BYTES = 14_000_000;
 export const productKinds = ['Телефон', 'Ноутбук', 'Комплектующие', 'Инструмент', 'Автозапчасти', 'Мебель', 'Одежда', 'Другое'];
 export const fundingLabels: Record<FundingSource, string> = { capital: 'Капитал', pocket: 'Карман' };
 export const products = (data: AppData): ResaleProduct[] => data.products ?? [];
+export const people = (data: AppData): Person[] => data.people ?? [];
+export const accountRoles: Record<AccountRole, string> = { capital: 'Капитал · 15%', hand: 'На руки · 70%', debt: 'На долги · 15%' };
+export const accountRoleOrder: AccountRole[] = ['capital', 'hand', 'debt'];
+export const productStatusLabels: Record<ProductStatus | 'sold', string> = { preparing: 'На подготовке', listed: 'На продаже', sold: 'Продан' };
+export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
+export const productStatus = (p: ResaleProduct): ProductStatus | 'sold' => p.sale ? 'sold' : p.status ?? 'preparing';
 export const productCost = (product: ResaleProduct) => sum(product.funding.map(f => f.amountKopecks));
 // Exact integer rounding: percentages are basis points (15% = 1500, 12.5% = 1250).
 export function shareKopecks(amountKopecks: number, basisPoints: number): number {
@@ -54,9 +63,66 @@ export function saleBreakdown(product: ResaleProduct) {
 export const inventoryProducts = (data: AppData) => products(data).filter(p => !p.sale);
 export const soldProducts = (data: AppData, month = '') => products(data).filter(p => p.sale && (!month || monthKey(p.sale.date) === month));
 export const inventoryValue = (data: AppData) => sum(inventoryProducts(data).map(productCost));
-export const resaleEarnings = (data: AppData, month = '') => sum(soldProducts(data, month).map(p => saleBreakdown(p).earnedKopecks));
-export function jobEarnings(data: AppData, month = ''): number { return shareKopecks(sum(oddJobIncomes(data).filter(i => !month || monthKey(i.date) === month).map(i => i.amountKopecks)), PERSONAL_SHARE_BPS); }
-export function earnedIncome(data: AppData, month = ''): number { return resaleEarnings(data, month) + jobEarnings(data, month); }
+// На странице перепродаж показываем все вложения в непроданные товары, включая справочную сумму инвестора.
+export const resaleInventoryValue = (data: AppData) => sum(inventoryProducts(data).map(p => productCost(p) + (p.investor?.amountKopecks ?? 0)));
+export const jobNetProfit = (i: Income) => i.amountKopecks - (i.costKopecks ?? 0);
+export const resaleNetProfit = (data: AppData, month = '') => sum(soldProducts(data, month).map(p => saleBreakdown(p).personalProfit));
+export function jobEarnings(data: AppData, month = ''): number { return sum(oddJobIncomes(data).filter(i => !month || monthKey(i.date) === month).map(jobNetProfit)); }
+export const resaleEarnings = resaleNetProfit;
+export function earnedIncome(data: AppData, month = ''): number { return resaleNetProfit(data, month) + jobEarnings(data, month); }
+export interface ProfitAllocation { capital: number; debt: number; hand: number; total: number }
+export function profitAllocation(profit: number): ProfitAllocation {
+  const positive = Math.max(0, profit);
+  const capital = shareKopecks(positive, PERSONAL_SHARE_BPS);
+  const debt = shareKopecks(positive, PERSONAL_SHARE_BPS);
+  return { capital, debt, hand: positive - capital - debt, total: positive };
+}
+export function allocations(data: AppData, month = ''): ProfitAllocation {
+  const events = [
+    ...soldProducts(data, month).map(p => saleBreakdown(p).personalProfit),
+    ...oddJobIncomes(data).filter(i => !month || monthKey(i.date) === month).map(jobNetProfit),
+  ];
+  return events.reduce((total, profit) => { const a = profitAllocation(profit); return { capital: total.capital + a.capital, debt: total.debt + a.debt, hand: total.hand + a.hand, total: total.total + a.total }; }, { capital: 0, debt: 0, hand: 0, total: 0 });
+}
+export function returnedPrincipal(product: ResaleProduct): number {
+  if (!product.sale) return 0;
+  const cost = productCost(product);
+  return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
+}
+// Остаток капитала: денежные счета без полной выручки шабашек, но с 15% их чистой прибыли.
+// Покупки товаров уже уменьшают денежные счета, продажа возвращает тело покупки и 15% прибыли.
+// Обычные расходы, корректировки и прежние поступления остаются в расчёте; долги не вычитаются повторно.
+export function capitalRemainder(data: AppData): number {
+  const liquidIds = new Set(liquidAccounts(data).map(a => a.id));
+  const liquid = sum(liquidAccounts(data).map(a => accountBalance(data, a.id)));
+  const jobs = oddJobIncomes(data).filter(i => liquidIds.has(i.accountId));
+  const jobReceipts = sum(jobs.map(i => i.amountKopecks));
+  const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
+  return liquid - jobReceipts + jobCapital;
+}
+export interface StatusDurations { preparingMs: number; listedMs: number; soldMs: number }
+export function statusDurations(product: ResaleProduct, now = Date.now()): StatusDurations {
+  const created = Date.parse(product.preparingStartedAt ?? product.createdAt) || Date.parse(`${product.purchaseDate}T12:00:00`) || now;
+  const listed = product.listedAt ? Date.parse(product.listedAt) : product.status === 'listed' && product.statusChangedAt ? Date.parse(product.statusChangedAt) : NaN;
+  const sold = product.sale ? Date.parse(`${product.sale.date}T12:00:00`) : NaN;
+  const endPrep = Number.isFinite(listed) ? listed : Number.isFinite(sold) ? sold : now;
+  const endListed = Number.isFinite(sold) ? sold : now;
+  return {
+    preparingMs: Math.max(0, endPrep - created),
+    listedMs: Number.isFinite(listed) ? Math.max(0, endListed - listed) : 0,
+    soldMs: Number.isFinite(sold) ? Math.max(0, now - sold) : 0,
+  };
+}
+export function formatDuration(ms: number): string {
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return 'меньше минуты';
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return hours > 0 ? `${days} д ${hours} ч` : `${days} д`;
+  if (hours > 0) return mins > 0 ? `${hours} ч ${mins} мин` : `${hours} ч`;
+  return `${mins} мин`;
+}
 export const liquidAccounts = (data: AppData) => data.accounts.filter(a => a.kind === 'cash' || a.kind === 'bank');
 export const incomeCategories = ['Перепродажи', 'Шабашки'] as const;
 export type IncomeCategory = typeof incomeCategories[number];
@@ -113,7 +179,7 @@ export const oddJobIncomes = (data: AppData): Income[] => data.incomes.filter(i 
 export const accountKinds: Record<AccountKind, string> = { cash: 'Наличные', bank: 'Банковский счёт', investment: 'Инвестиции', other: 'Другой актив' };
 export const uid = () => crypto.randomUUID();
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-export const emptyData = (): AppData => ({ schemaVersion: 1, accounts: [], incomes: [], debts: [], movements: [], workPlans: [], products: [], plan: { income: 0, expenses: 0, debtPayment: 0, months: 12, goal: 0 }, updatedAt: new Date().toISOString() });
+export const emptyData = (): AppData => ({ schemaVersion: 1, accounts: [], incomes: [], debts: [], movements: [], workPlans: [], products: [], people: [], plan: { income: 0, expenses: 0, debtPayment: 0, months: 12, goal: 0 }, updatedAt: new Date().toISOString() });
 export const money = (value: number, decimals = false) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: decimals || value % 100 !== 0 ? 2 : 0, maximumFractionDigits: 2 }).format(value / 100);
 export const number = (value: number) => new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value);
 export const inputMoney = (value: number) => (value / 100).toFixed(2).replace('.', ',');
@@ -157,15 +223,15 @@ export function accountBalance(data: AppData, accountId: string): number {
   return balance;
 }
 export function totals(data: AppData) {
-  // Debt principals are not added/subtracted here. Actual cash movements on accounts remain.
-  const onHand = sum(liquidAccounts(data).map(a => accountBalance(data, a.id)));
   const assets = inventoryValue(data);
+  const remainder = capitalRemainder(data);
+  const totalCapital = assets + remainder;
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());
   const incomeMonth = earnedIncome(data, month);
   const expenseMonth = sum(data.movements.filter(m => m.kind === 'expense' && monthKey(m.date) === month).map(m => m.amountKopecks));
-  return { onHand, assets, payable, receivable, incomeMonth, expenseMonth, incomeTotal: earnedIncome(data), resaleIncomeMonth: resaleEarnings(data, month), jobIncomeMonth: jobEarnings(data, month) };
+  return { onHand: remainder, remainder, totalCapital, assets, liquidBalance: sum(liquidAccounts(data).map(a => accountBalance(data, a.id))), payable, receivable, incomeMonth, expenseMonth, incomeTotal: earnedIncome(data), resaleIncomeMonth: resaleEarnings(data, month), jobIncomeMonth: jobEarnings(data, month), allocations: allocations(data) };
 }
 export function accountReferenced(data: AppData, id: string): boolean {
   return data.incomes.some(i => i.accountId === id) || data.movements.some(m => m.accountId === id) || data.debts.some(d => d.initialAccountId === id || d.payments.some(p => p.accountId === id)) || products(data).some(p => p.funding.some(f => f.accountId === id) || p.sale?.accountId === id);
@@ -176,7 +242,7 @@ export function ledger(data: AppData): LedgerItem[] {
   for (const product of products(data)) {
     const cost = productCost(product);
     items.push({ id: `purchase-${product.id}`, type: 'product-purchase', title: `Покупка: ${product.kind}`, subtitle: product.funding.map(f => `${fundingLabels[f.source]} · ${accountName(f.accountId)}`).join(' + '), date: product.purchaseDate, amount: cost, accountId: product.funding[0]?.accountId ?? null, positive: false });
-    if (product.sale) items.push({ id: `sale-${product.id}`, type: 'product-sale', title: `Продажа: ${product.kind}`, subtitle: `Возврат покупки + ваша доля · ${accountName(product.sale.accountId)}`, date: product.sale.date, amount: saleBreakdown(product).returnedKopecks, accountId: product.sale.accountId, positive: true });
+    if (product.sale) items.push({ id: `sale-${product.id}`, type: 'product-sale', title: `Продажа: ${product.kind}`, subtitle: `Возврат покупки + распределение прибыли · ${accountName(product.sale.accountId)}`, date: product.sale.date, amount: saleBreakdown(product).returnedKopecks, accountId: product.sale.accountId, positive: true });
   }
   for (const m of data.movements) items.push({ id: m.id, type: m.kind, title: m.title, subtitle: `${m.kind === 'expense' ? 'Расход' : 'Корректировка'} · ${accountName(m.accountId)}`, date: m.date, amount: m.amountKopecks, accountId: m.accountId, positive: m.kind === 'adjustment' && m.amountKopecks >= 0 });
   for (const d of data.debts) {
