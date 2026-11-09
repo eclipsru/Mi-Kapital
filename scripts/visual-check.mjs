@@ -29,6 +29,11 @@ async function assertLayout(label) {
     if (directions && getComputedStyle(directions).display !== 'grid') return 'income direction cards lost their base layout';
     const resaleGrid = document.querySelector('.product-grid');
     if (resaleGrid && getComputedStyle(resaleGrid).display !== 'grid') return 'resale grid lost its base layout';
+    if (resaleGrid && window.innerWidth >= 1200 && getComputedStyle(resaleGrid).gridTemplateColumns.split(' ').length !== 3) return 'resale grid is not three cards per row on desktop';
+    const roleGrid = document.querySelector('.role-accounts-grid');
+    if (roleGrid && getComputedStyle(roleGrid).display !== 'grid') return 'role account grid lost its base layout';
+    const debtList = document.querySelector('.debts-list');
+    if (debtList && getComputedStyle(debtList).display === 'grid') return 'debts should be a list, not a card grid';
     const summary = document.querySelector('.jobs-summary');
     if (summary && getComputedStyle(summary).display !== 'grid') return 'odd-job summary lost its base layout';
     return document.documentElement.scrollWidth > window.innerWidth || [...document.querySelectorAll('.income-direction')].some(el => el.scrollWidth > el.clientWidth + 1) ? 'horizontal overflow' : '';
@@ -51,24 +56,29 @@ try {
     localStorage.setItem('mi-kapital.v2.local', JSON.stringify({
       schemaVersion: 1,
       accounts: [
-        { id: 'a1', name: 'Основная карта', kind: 'bank', openingKopecks: 8500000, createdAt: new Date().toISOString() },
-        { id: 'a2', name: 'Наличные', kind: 'cash', openingKopecks: 1850000, createdAt: new Date().toISOString() },
-        { id: 'a3', name: 'Накопления', kind: 'investment', openingKopecks: 16000000, createdAt: new Date().toISOString() },
+        { id: 'a1', name: 'Основная карта', kind: 'bank', openingKopecks: 8500000, createdAt: new Date().toISOString(), role: 'capital' },
+        { id: 'a2', name: 'Наличные', kind: 'cash', openingKopecks: 1850000, createdAt: new Date().toISOString(), role: 'hand' },
+        { id: 'a3', name: 'Накопления', kind: 'investment', openingKopecks: 16000000, createdAt: new Date().toISOString(), role: 'debt' },
       ],
       incomes: [
         income('r1', 'Продажа инструмента', 'Перепродажи', 8500000, 0, 'a1'),
         income('r2', 'Продажа комплектующих', 'Перепродажи', 1250000, 0, 'a2'),
-        { ...income('j1', 'Ремонт автомобиля', 'Шабашки', 2400000, 0, 'a2'), work: { kind: 'Ремонт', values: { object: 'Автомобиль', scope: 'Диагностика и замена масла' } } },
-        { ...income('j2', 'Сборка мебели', 'Шабашки', 950000, 0, 'a2'), work: { kind: 'Сборка мебели', values: { object: 'Шкаф', quantity: '1' } } },
+        { ...income('j1', 'Ремонт автомобиля', 'Шабашки', 2400000, 0, 'a2'), costKopecks: 350000, work: { kind: 'Ремонт', values: { object: 'Автомобиль', scope: 'Диагностика и замена масла' } } },
+        { ...income('j2', 'Сборка мебели', 'Шабашки', 950000, 0, 'a2'), costKopecks: 120000, work: { kind: 'Сборка мебели', values: { object: 'Шкаф', quantity: '1' } } },
         income('r3', 'Продажа велосипеда', 'Перепродажи', 8000000, 1, 'a1'),
         income('j3', 'Работа на выходных', 'Шабашки', 1800000, 2, 'a2'),
         income('r4', 'Продажа монитора', 'Перепродажи', 7800000, 3, 'a1'),
         income('legacy', 'Подарок на день рождения', 'Подарок', 3200000, 4, 'a2'),
       ],
       products: [
-        { id: 'g1', kind: 'Телефон', purchaseDate: month[0], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 1200000 }, { source: 'pocket', accountId: 'a2', amountKopecks: 600000 }], description: 'Проверен, полный комплект. Куплен для перепродажи.', photos: [], investor: { name: 'Алексей', amountKopecks: 500000, percentBasisPoints: 2000, terms: '20% от прибыли' }, createdAt: new Date().toISOString() },
-        { id: 'g2', kind: 'Ноутбук', purchaseDate: month[1], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 2500000 }], description: 'После диагностики, готов к продаже.', photos: [], createdAt: new Date().toISOString() },
-        { id: 'g3', kind: 'Комплектующие', purchaseDate: month[1], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 800000 }], description: 'Продано комплектом.', photos: [], investor: { name: 'Михаил', amountKopecks: 0, percentBasisPoints: 1000, terms: '10% прибыли' }, sale: { priceKopecks: 1200000, date: month[0], accountId: 'a1' }, createdAt: new Date().toISOString() },
+        { id: 'g1', kind: 'Телефон', purchaseDate: month[0], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 1200000 }, { source: 'pocket', accountId: 'a2', amountKopecks: 600000 }], description: 'Проверен, полный комплект. Куплен для перепродажи.', photos: [], investor: { name: 'Алексей', amountKopecks: 500000, percentBasisPoints: 2000, terms: '20% от прибыли' }, createdAt: `${month[0]}T09:00:00.000Z`, status: 'preparing', preparingStartedAt: `${month[0]}T09:00:00.000Z` },
+        { id: 'g2', kind: 'Ноутбук', purchaseDate: month[1], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 2500000 }], description: 'После диагностики, готов к продаже.', photos: [], createdAt: `${month[1]}T09:00:00.000Z`, status: 'listed', preparingStartedAt: `${month[1]}T09:00:00.000Z`, listedAt: `${month[1]}T12:00:00.000Z`, statusChangedAt: `${month[1]}T12:00:00.000Z` },
+        { id: 'g3', kind: 'Комплектующие', purchaseDate: month[1], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 800000 }], description: 'Продано комплектом.', photos: [], investor: { name: 'Михаил', amountKopecks: 0, percentBasisPoints: 1000, terms: '10% прибыли' }, sale: { priceKopecks: 1200000, date: month[0], accountId: 'a1' }, createdAt: `${month[1]}T09:00:00.000Z`, preparingStartedAt: `${month[1]}T09:00:00.000Z` },
+      ],
+      people: [
+        { id: 'person-alexey', name: 'Алексей', createdAt: new Date().toISOString() },
+        { id: 'person-mikhail', name: 'Михаил', createdAt: new Date().toISOString() },
+        { id: 'person-alexandr', name: 'Александр', createdAt: new Date().toISOString() },
       ],
       workPlans: [
         { id: 'wp1', kind: 'Электрика', title: 'Щиток в гараже', date: month[0], expectedKopecks: 1500000, note: 'Купить автомат заранее', createdAt: new Date().toISOString() },
@@ -96,7 +106,7 @@ try {
   await page.getByRole('button', { name: /^Перепродажи/ }).click();
   await page.getByRole('heading', { name: 'Перепродажи', exact: true }).waitFor();
   await page.waitForTimeout(220); await shot('03-resales');
-  await page.getByRole('tab', { name: 'Проданные', exact: true }).click(); await page.waitForTimeout(220); await shot('03-resales-sold');
+  await page.getByRole('tab', { name: 'Продано', exact: true }).click(); await page.waitForTimeout(220); await shot('03-resales-sold');
   await page.getByRole('tab', { name: 'В наличии', exact: true }).click();
   await page.getByRole('button', { name: 'Добавить товар', exact: true }).first().click();
   await page.getByRole('dialog').waitFor();
@@ -149,6 +159,12 @@ try {
   await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   await page.getByRole('button', { name: 'Вернуться к доходам', exact: true }).click();
   await navigate('debts', 'Долги'); await shot('04-debts');
+  await page.getByRole('button', { name: 'Отдать', exact: true }).first().click();
+  await page.getByRole('dialog').waitFor(); await shot('04-debts-repay');
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await page.getByRole('button', { name: 'Добавить человека', exact: true }).click();
+  await page.getByRole('dialog').waitFor(); await shot('04-person-form');
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   await navigate('calculation', 'Расчёт'); await shot('05-calculation');
   await page.getByRole('button', { name: 'Обновления', exact: true }).click();
   await page.getByRole('dialog').waitFor(); await shot('06-updates');
@@ -168,9 +184,10 @@ try {
     await navigate('income', 'Доходы');
     await page.getByRole('button', { name: 'Показать всю историю', exact: true }).click(); await page.waitForTimeout(220); await assertLayout(`legacy history ${width}px`); await shot(`income-history-${width}`);
     await page.getByRole('button', { name: 'Вернуться к доходам', exact: true }).click();
+    await navigate('debts', 'Долги'); await assertLayout(`debts ${width}px`); await shot(`debts-${width}`);
   }
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('Visual checks passed: 4 sections, separate resale page with product/photo/voice/sale forms, separate odd-jobs page with summary/done/plan forms, legacy history, account forms, update dialog, 1440/1280/1024/768/390 px. No browser errors or horizontal overflow.');
+  console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. No browser errors or horizontal overflow.');
 } finally {
   await browser.close();
 }

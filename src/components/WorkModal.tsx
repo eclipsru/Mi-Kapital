@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
-import { cleanWorkValues, inputMoney, parseMoney, today, uid, validDate, workKindFields, workKinds, workTitle, type AppData, type Income, type WorkKind, type WorkPlan } from '../core/model';
+import { cleanWorkValues, inputMoney, money, parseMoney, today, uid, validDate, workKindFields, workKinds, workTitle, type AppData, type Income, type WorkKind, type WorkPlan } from '../core/model';
 import { Button, Field, Modal } from './ui';
 
 export type WorkRequest =
@@ -16,6 +16,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
   const [kind, setKind] = useState<WorkKind>(initialKind);
   const [values, setValues] = useState<Record<string, string>>(initialValues);
   const [amount, setAmount] = useState(completed ? request.item ? inputMoney(request.item.amountKopecks) : '' : request.item?.expectedKopecks ? inputMoney(request.item.expectedKopecks) : '');
+  const [cost, setCost] = useState(completed && request.item?.costKopecks ? inputMoney(request.item.costKopecks) : '');
   const [date, setDate] = useState(completed ? request.item?.date ?? today() : request.item?.date ?? '');
   const [accountId, setAccountId] = useState(completed ? request.item?.accountId ?? data.accounts[0]?.id ?? '' : '');
   const [planTitle, setPlanTitle] = useState(!completed ? request.item?.title ?? '' : '');
@@ -38,6 +39,8 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
     if (completed) {
       const value = parseMoney(amount);
       if (value === null || value <= 0) return setError('Введите корректную сумму: до двух знаков после запятой, не больше 100 млрд ₽.');
+      const costValue = cost.trim() ? parseMoney(cost) : 0;
+      if (costValue === null || costValue < 0) return setError('Расходы должны быть неотрицательной суммой, до двух знаков после запятой.');
       if (!validDate(date)) return setError('Проверьте дату выполнения.');
       if (!data.accounts.some(a => a.id === accountId)) return setError('Сначала создайте счёт в разделе «Мой капитал».');
       const cleaned = cleanWorkValues(kind, values);
@@ -48,6 +51,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
         title: workTitle(kind, cleaned),
         category: 'Шабашки',
         amountKopecks: value,
+        costKopecks: costValue,
         date,
         accountId,
         note: note.trim().slice(0, 2000),
@@ -92,20 +96,22 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
         <input className="inp" maxLength={120} value={planTitle} placeholder="Например, собрать кухню в субботу" onChange={e => setPlanTitle(e.target.value)} autoComplete="off"/>
       </Field>}
       <div className="form-row">
-        <Field label={completed ? 'Сумма, ₽' : 'Ожидаемая сумма, ₽'} hint={completed ? undefined : 'Можно оставить пустым и уточнить позже.'}>
+        <Field label={completed ? 'Получено, ₽' : 'Ожидаемая сумма, ₽'} hint={completed ? undefined : 'Можно оставить пустым и уточнить позже.'}>
           <input className="inp money-input" required={completed} inputMode="decimal" value={amount} placeholder="0,00" onChange={e => setAmount(e.target.value)}/>
         </Field>
         <Field label={completed ? 'Дата' : 'Планируемая дата'}>
           <input className="inp" type="date" required={completed} min="1900-01-01" max="2200-12-31" value={date} onChange={e => setDate(e.target.value)}/>
         </Field>
       </div>
+      {completed && <Field label="Расходы на работу, ₽" hint="Материалы, топливо, инструмент и другие затраты. Можно оставить пустым."><input className="inp money-input" inputMode="decimal" value={cost} placeholder="0,00" onChange={e => setCost(e.target.value)}/></Field>}
+      {completed && (parseMoney(amount) !== null || cost.trim()) && <div className="sale-preview job-net-preview" aria-label="Чистая прибыль шабашки"><div><span>Получено</span><strong>{money(parseMoney(amount) ?? 0)}</strong></div><div><span>Расходы</span><strong>−{money(parseMoney(cost) ?? 0)}</strong></div><div className="sale-preview-total"><span>Чистая прибыль</span><strong>{money((parseMoney(amount) ?? 0) - (parseMoney(cost) ?? 0))}</strong></div></div>}
       {completed && <Field label="Счёт">
         <select className="inp" required value={accountId} onChange={e => setAccountId(e.target.value)}>
           {!data.accounts.length && <option value="">Сначала создайте счёт</option>}
           {data.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </Field>}
-      {completed && <div className="form-note"><Check size={16}/><span>На счёт поступит вся сумма. В личный доход за месяц войдут 15% — один раз.</span></div>}
+      {completed && <div className="form-note"><Check size={16}/><span>На счёт поступит вся полученная сумма. В доход направлений войдёт чистая прибыль: получено минус расходы. Распределение 15/15/70 считается в «Моём капитале».</span></div>}
       {!completed && <div className="form-note"><Check size={16}/><span>План пока не меняет капитал. Позже свяжем его с выполненной работой.</span></div>}
       <Field label="Заметка · необязательно">
         <textarea className="inp" maxLength={2000} rows={2} value={note} placeholder="Детали, которые важно не забыть" onChange={e => setNote(e.target.value)}/>
