@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountBalance, accountReferenced, calculatePlan, debtRemaining, emptyData, lastMonths, ledger, money, parseMoney, suggestPlan, totals, validDate, type Account, type Debt, type Income } from '../src/core/model';
+import { accountBalance, accountReferenced, calculatePlan, debtRemaining, emptyData, incomeCategories, incomeCategoryOptions, lastMonths, ledger, money, parseMoney, suggestPlan, today, totals, validDate, type Account, type Debt, type Income } from '../src/core/model';
 import { parseBackup, serializeBackup, validateData } from '../src/core/storage';
 const account:Account={id:'a',name:'Карта',kind:'bank',openingKopecks:100000,createdAt:'2026-01-01'};
 const income:Income={id:'i',title:'Зарплата',category:'Зарплата',amountKopecks:50000,accountId:'a',date:'2026-11-01',note:''};
@@ -21,6 +21,25 @@ describe('coherent capital accounting',()=>{
   it('reverses deleted operations through derivation',()=>{const d={...emptyData(),accounts:[account],incomes:[income]};expect(accountReferenced(d,'a')).toBe(true);expect(accountBalance({...d,incomes:[]},'a')).toBe(100000);});
   it('includes initial loan movements and repayments in the activity feed',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};expect(ledger(d).map(i=>i.type)).toEqual(['payment','debt']);});
 });
+describe('income directions',()=>{
+  it('offers resale first and odd jobs second, preserving legacy editing options',()=>{
+    expect(incomeCategories).toEqual(['Перепродажи','Шабашки']);
+    expect(incomeCategoryOptions()).toEqual(['Перепродажи','Шабашки']);
+    expect(incomeCategoryOptions('Подарок')).toEqual(['Подарок','Перепродажи','Шабашки']);
+    expect(incomeCategoryOptions('Шабашки')).toEqual(['Перепродажи','Шабашки']);
+  });
+  it('separates receipts by direction without changing account or capital totals',()=>{
+    const resale={...income,id:'resale',category:'Перепродажи',amountKopecks:30000,date:today()};
+    const jobs={...income,id:'jobs',category:'Шабашки',amountKopecks:20000,date:today()};
+    const previous={...resale,id:'previous',amountKopecks:40000,date:`${lastMonths(2)[0]}-05`};
+    const d={...emptyData(),accounts:[account],incomes:[income,resale,jobs,previous]};
+    expect(sumFor(d,'Перепродажи')).toBe(70000);expect(sumFor(d,'Шабашки')).toBe(20000);
+    expect(totals(d).incomeMonth).toBe(100000);expect(totals(d).incomeTotal).toBe(140000);
+    expect(accountBalance(d,'a')).toBe(240000);expect(totals(d).net).toBe(240000);
+    expect(totals({...d,incomes:d.incomes.filter(i=>i.category!=='Шабашки')}).net).toBe(220000);
+  });
+});
+function sumFor(data:ReturnType<typeof emptyData>,category:string){return data.incomes.filter(i=>i.category===category).reduce((n,i)=>n+i.amountKopecks,0);}
 describe('forecast',()=>{
   it('does not deduct principal repayment from net capital twice',()=>{const d={...emptyData(),accounts:[account],debts:[debt]};const plan={income:50000,expenses:20000,debtPayment:10000,months:3,goal:200000};const r=calculatePlan(d,plan);expect(r.free).toBe(30000);expect(r.afterDebt).toBe(20000);expect(r.projected).toBe(160000);expect(r.debtMonths).toBe(3);expect(r.goalMonths).toBe(5);});
   it('handles zero income, achieved goals and negative cash flow',()=>{const d=emptyData();const r=calculatePlan(d,{income:0,expenses:1000,debtPayment:0,months:2,goal:0});expect(r.projected).toBe(-2000);expect(r.goalMonths).toBeNull();expect(r.debtMonths).toBe(0);expect(calculatePlan({...d,accounts:[account]},{income:1000,expenses:0,debtPayment:0,months:2,goal:50000}).goalMonths).toBe(0);});
@@ -28,6 +47,7 @@ describe('forecast',()=>{
 });
 describe('validated backups',()=>{
   it('roundtrips a backup',()=>{const d={...emptyData(),accounts:[account],incomes:[income],debts:[debt]};expect(parseBackup(serializeBackup(d))).toEqual(d);});
+  it('roundtrips new directions and legacy categories without migration or reassignment',()=>{const d={...emptyData(),accounts:[account],incomes:[income,{...income,id:'r',category:'Перепродажи'},{...income,id:'j',category:'Шабашки'}]};const restored=parseBackup(serializeBackup(d));expect(restored).toEqual(d);expect(restored.incomes.map(i=>i.category)).toEqual(['Зарплата','Перепродажи','Шабашки']);});
   it('rejects broken references, duplicate IDs, overpayment and invalid schemas',()=>{const d=emptyData();expect(()=>validateData({...d,incomes:[income]})).toThrow();expect(()=>validateData({...d,accounts:[account,account]})).toThrow();expect(()=>validateData({...d,accounts:[account],debts:[{...debt,payments:[{id:'p',amountKopecks:40000,date:'2026-11-01',accountId:'a',note:''}]}]})).toThrow();expect(()=>validateData({...d,schemaVersion:2})).toThrow();expect(()=>parseBackup('{bad')).toThrow();});
   it('rejects prototype-like account kinds and fractional kopecks',()=>{expect(()=>validateData({...emptyData(),accounts:[{...account,kind:'__proto__'}]})).toThrow();expect(()=>validateData({...emptyData(),accounts:[{...account,openingKopecks:1.5}]})).toThrow();});
 });

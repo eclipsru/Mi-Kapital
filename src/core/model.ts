@@ -10,7 +10,13 @@ export interface Plan { income: number; expenses: number; debtPayment: number; m
 export interface AppData { schemaVersion: 1; accounts: Account[]; incomes: Income[]; debts: Debt[]; movements: Movement[]; plan: Plan; updatedAt: string }
 export interface LedgerItem { id: string; type: 'income' | 'expense' | 'adjustment' | 'debt' | 'payment'; title: string; subtitle: string; date: string; amount: number; accountId: string | null; debtId?: string; positive: boolean }
 export const MAX_MONEY = 100_000_000_000_00; // 100 billion rubles, in kopecks
-export const categories = ['Зарплата', 'Подработка', 'Бизнес', 'Инвестиции', 'Подарок', 'Другое'];
+export const incomeCategories = ['Перепродажи', 'Шабашки'] as const;
+export type IncomeCategory = typeof incomeCategories[number];
+// Income.category stays a string so older records and backups remain readable.
+// Preserve a legacy category as an editing option without silently reclassifying it.
+export function incomeCategoryOptions(existing?: string): string[] {
+  return existing && !incomeCategories.includes(existing as IncomeCategory) ? [existing, ...incomeCategories] : [...incomeCategories];
+}
 export const accountKinds: Record<AccountKind, string> = { cash: 'Наличные', bank: 'Банковский счёт', investment: 'Инвестиции', other: 'Другой актив' };
 export const uid = () => crypto.randomUUID();
 export const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
