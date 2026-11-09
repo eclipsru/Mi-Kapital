@@ -59,7 +59,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
         const old = request.item!.amountKopecks;
         if (value > request.debt.principalKopecks - debtPaid(request.debt) + old) return setError('Платёж больше остатка долга. Уменьшите сумму.');
       } else if (value > request.debt.principalKopecks - debtPaid(request.debt)) return setError('Платёж больше остатка долга. Уменьшите сумму.');
-      const payment: Payment = { id:request.item?.id ?? uid(), amountKopecks:value, date, accountId, note:common.note };
+      const payment: Payment = { id:request.item?.id ?? uid(), amountKopecks:value, date, accountId, note:common.note, ...(voice ? { voice } : {}) };
       const payments = editing ? request.debt.payments.map(p=>p.id===payment.id?payment:p) : [...request.debt.payments,payment];
       onSave({ ...data, debts:data.debts.map(d=>d.id===request.debt.id?{...d,payments}:d) }, 'Платёж сохранён. Долг и остаток счёта пересчитаны.');
     }

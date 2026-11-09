@@ -40,13 +40,19 @@ public final class NativeStore {
   }
   public void save(String json) throws Exception {
     synchronized (lock) { JSONObject data = new JSONObject(json); if (!valid(data)) throw new IllegalArgumentException("Неверные данные"); atomic(file("capital-data.json"), data.toString()); }
-    CapitalWidget.updateAll(context); QuickWidget.updateAll(context);
+    try { CapitalWidget.updateAll(context); QuickWidget.updateAll(context); } catch (Exception ignored) {}
   }
   public JSONObject config() {
     try { return new JSONObject(read(file("sync-settings.json"))); }
     catch (Exception e) { JSONObject value = new JSONObject(); try { value.put("lanEnabled",true); value.put("lanPort",47653); value.put("lanToken",""); value.put("lanUrl",""); value.put("cloudEnabled",false); value.put("supabaseUrl",""); value.put("supabaseKey",""); value.put("email",""); } catch (Exception ignored) {} return value; }
   }
-  public void saveConfig(String json) throws Exception { JSONObject value = new JSONObject(json); atomic(file("sync-settings.json"), value.toString()); }
+  public void saveConfig(String json) throws Exception {
+    JSONObject value = new JSONObject(json);
+    if (!(value.get("lanEnabled") instanceof Boolean) || !(value.get("cloudEnabled") instanceof Boolean) || !value.has("lanUrl") || !value.has("supabaseUrl") || !value.has("supabaseKey") || !value.has("email")) throw new IllegalArgumentException("Неверные настройки синхронизации");
+    int port=value.optInt("lanPort",0); String token=value.optString("lanToken","");
+    if (port < 1024 || port > 65535 || !(token.isEmpty() || token.matches("[a-f0-9]{64}"))) throw new IllegalArgumentException("Неверный порт или ключ сопряжения");
+    atomic(file("sync-settings.json"), value.toString());
+  }
   public String deviceId() { try { return read(file("device-id")); } catch (Exception e) { String id=UUID.randomUUID().toString(); try { atomic(file("device-id"),id); } catch (Exception ignored) {} return id; } }
   public static String hash(byte[] bytes) throws Exception { StringBuilder result=new StringBuilder(); for(byte b:MessageDigest.getInstance("SHA-256").digest(bytes)) result.append(String.format("%02x",b)); return result.toString(); }
   public static void deleteTree(File file) { if(file.isDirectory()){File[] children=file.listFiles();if(children!=null)for(File child:children)deleteTree(child);} file.delete(); }

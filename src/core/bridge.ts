@@ -6,7 +6,9 @@ export interface DesktopBridge {
   onRemoteData?: (callback: (data: unknown) => void) => () => void;
   syncConfig?: () => Promise<import('./sync').SyncConfig>;
   saveSyncConfig?: (config: import('./sync').SyncConfig) => Promise<void>;
-  syncInfo?: () => Promise<{ addresses: string[]; port: number; token: string; enabled: boolean; error?: string }>;
+  syncInfo?: () => Promise<{ addresses: string[]; port: number; token: string; enabled: boolean; error?: string } | null>;
+  consumePairing?: () => Promise<{ lanUrl: string; lanToken: string } | null>;
+  routeChanged?: (route: string) => void;
   onSyncStatus?: (callback: (status: import('./sync').SyncStatus) => void) => () => void;
   info: () => Promise<UpdateState>;
   checkUpdates: () => Promise<void>;

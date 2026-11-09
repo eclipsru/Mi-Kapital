@@ -100,7 +100,7 @@ describe('resale products and personal income',()=>{
   });
   it('rejects invalid funding, investor percentage, duplicate goods, sale dates and unsafe media',()=>{
     const d={...emptyData(),accounts:[account],products:[product]};
-    for(const bad of [{...product,funding:[]},{...product,funding:[product.funding[0],product.funding[0]]},{...product,funding:[{...product.funding[0],accountId:'missing'}]},{...product,investor:{...product.investor!,percentBasisPoints:10001}},{...product,sale:{priceKopecks:100,date:'2025-01-01',accountId:'a'}},{...product,photos:['data:image/svg+xml;base64,PHN2Zz4=']},{...product,voice:{mimeType:'audio/webm',dataUrl:'javascript:alert(1)',durationSeconds:1}}])expect(()=>validateData({...d,products:[bad]})).toThrow();
+    for(const bad of [{...product,funding:[{...product.funding[0],amountKopecks:0}]},{...product,funding:[product.funding[0],product.funding[0]]},{...product,funding:[{...product.funding[0],accountId:'missing'}]},{...product,investor:{...product.investor!,percentBasisPoints:10001}},{...product,sale:{priceKopecks:100,date:'2025-01-01',accountId:'a'}},{...product,photos:['data:image/svg+xml;base64,PHN2Zz4=']},{...product,voice:{mimeType:'audio/webm',dataUrl:'javascript:alert(1)',durationSeconds:1}}])expect(()=>validateData({...d,products:[bad]})).toThrow();
     expect(()=>validateData({...d,products:[product,product]})).toThrow();
   });
 });
@@ -162,4 +162,19 @@ describe('validated backups',()=>{
   it('roundtrips new directions and legacy categories without migration or reassignment',()=>{const d={...emptyData(),accounts:[account],incomes:[income,{...income,id:'r',category:'Перепродажи'},{...income,id:'j',category:'Шабашки'}]};const restored=parseBackup(serializeBackup(d));expect(restored).toEqual(d);expect(restored.incomes.map(i=>i.category)).toEqual(['Зарплата','Перепродажи','Шабашки']);});
   it('rejects broken references, duplicate IDs, overpayment and invalid schemas',()=>{const d=emptyData();expect(()=>validateData({...d,incomes:[income]})).toThrow();expect(()=>validateData({...d,accounts:[account,account]})).toThrow();expect(()=>validateData({...d,accounts:[account],debts:[{...debt,payments:[{id:'p',amountKopecks:40000,date:'2026-11-01',accountId:'a',note:''}]}]})).toThrow();expect(()=>validateData({...d,schemaVersion:2})).toThrow();expect(()=>parseBackup('{bad')).toThrow();});
   it('rejects prototype-like account kinds and fractional kopecks',()=>{expect(()=>validateData({...emptyData(),accounts:[{...account,kind:'__proto__'}]})).toThrow();expect(()=>validateData({...emptyData(),accounts:[{...account,openingKopecks:1.5}]})).toThrow();});
+});
+
+describe('net capital and free purchases',()=>{
+  it('subtracts only outstanding borrowing once and keeps role accruals and remainder unchanged',()=>{
+    const borrowed:Debt={...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]};
+    const data={...emptyData(),accounts:[account],debts:[borrowed,{...debt,id:'receivable',direction:'owed_to_me' as const}],incomes:[{...income,category:'Шабашки'}]};
+    const t=totals(data);expect(t.remainder).toBe(127500);expect(t.payable).toBe(20000);expect(t.totalCapital).toBe(107500);expect(allocations(data)).toEqual({capital:7500,debt:7500,hand:35000,total:50000});
+    expect(totals({...data,debts:[{...borrowed,payments:[{...borrowed.payments[0],amountKopecks:30000}]},data.debts[1]]}).totalCapital).toBe(107500);
+  });
+  it('accepts a zero-cost product without funding, changes its label when funded, and sells it normally',()=>{
+    const free:ResaleProduct={id:'free',kind:'Подарок',purchaseDate:'2026-11-01',funding:[],description:'',photos:[],createdAt:'2026-11-01'};const data={...emptyData(),accounts:[account],products:[free]};
+    expect(validateData(data).products![0].funding).toEqual([]);expect(productCost(free)).toBe(0);expect(totals(data).assets).toBe(0);expect(accountBalance(data,'a')).toBe(100000);expect(ledger(data).find(i=>i.type==='product-purchase')?.subtitle).toContain('Бесплатно');
+    const funded={...free,funding:[{source:'pocket' as const,accountId:'',amountKopecks:100}]};expect(productCost(funded)).toBe(100);expect(accountBalance(data,'a')).toBe(100000);
+    const sold={...free,sale:{priceKopecks:10000,date:'2026-11-02',accountId:'a'}};expect(saleBreakdown(sold).returnedKopecks).toBe(1500);expect(totals({...data,products:[sold]}).incomeTotal).toBe(10000);
+  });
 });

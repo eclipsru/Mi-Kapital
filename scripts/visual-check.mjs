@@ -170,8 +170,15 @@ try {
   await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   await page.getByRole('button', { name: 'Вернуться к доходам', exact: true }).click();
   await navigate('debts', 'Долги'); await shot('04-debts');
-  await page.getByRole('button', { name: 'Отдать', exact: true }).first().click();
-  await page.getByRole('dialog').waitFor(); await shot('04-debts-repay');
+  await page.locator('.debt-repay-total').click();
+  await page.getByRole('dialog').waitFor();
+  await page.getByLabel('Сумма, ₽', { exact: true }).fill('300');
+  await page.getByLabel('Списать со счёта Накопления', { exact: true }).uncheck();
+  await page.getByLabel('Списать со счёта Основная карта', { exact: true }).check();
+  await page.getByLabel('Списать со счёта Наличные', { exact: true }).check();
+  await page.getByLabel('Сумма со счёта Основная карта', { exact: true }).fill('100');
+  await page.getByLabel('Сумма со счёта Наличные', { exact: true }).fill('200');
+  await shot('04-debts-repay');
   if (!(await page.getByRole('button', { name: 'Записать голосом', exact: true }).count())) throw new Error('Repayment voice missing');
   await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   await page.getByRole('button', { name: 'Добавить человека', exact: true }).click();
@@ -189,7 +196,7 @@ try {
   await page.getByRole('button', { name: 'Скачать Android-приложение по QR-коду', exact: true }).click();
   await page.getByRole('dialog').waitFor(); await shot('06-android-qr');
   await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
-  await page.getByRole('button', { name: 'Обновления', exact: true }).click();
+  await page.getByRole('button', { name: 'Обновления приложения', exact: true }).click();
   await page.getByRole('dialog').waitFor(); await shot('06-updates');
   await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await navigate('capital', 'Мой капитал');
@@ -210,8 +217,30 @@ try {
     await navigate('debts', 'Долги'); await assertLayout(`debts ${width}px`); await shot(`debts-${width}`);
     await page.getByRole('button', { name: 'Добавить долг', exact: true }).first().click(); await page.getByRole('dialog').waitFor(); await assertLayout(`debt form ${width}px`); await shot(`debt-form-${width}`); await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   }
+  const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+  phone.on('pageerror', error => errors.push(error.message));
+  await phone.addInitScript(() => {
+    window.desktop = { platform: 'android', info: async () => ({ version: '2.0.37', shellVersion: '2', phase: 'idle', mode: 'files', percent: 0, transferred: 0, total: 0, packaged: true }), checkUpdates: async () => {}, installUpdate: async () => ({ ok: true }), openReleases: async () => {}, onUpdate: () => () => {}, loadData: async () => JSON.parse(localStorage.getItem('mi-kapital.v2.local') || 'null'), saveData: async data => localStorage.setItem('mi-kapital.v2.local', JSON.stringify(data)), exportBackup: async () => true, bootReady: () => {}, syncConfig: async () => ({ lanEnabled: true, lanPort: 47653, lanToken: '', lanUrl: '', cloudEnabled: false, supabaseUrl: '', supabaseKey: '', email: '' }), saveSyncConfig: async () => {}, syncInfo: async () => null, scanPairing: async () => {} };
+  });
+  await phone.goto(url, { waitUntil: 'networkidle' });
+  await phone.evaluate(() => document.fonts.ready);
+  const bottom = phone.getByRole('navigation', { name: 'Разделы приложения снизу' });
+  if (await bottom.locator('button').count() !== 4) throw new Error('Android bottom navigation must contain four sections');
+  for (const [label, heading] of [['Капитал', 'Мой капитал'], ['Доходы', 'Доходы'], ['Долги', 'Долги'], ['Расчёт', 'Расчёт']]) {
+    await bottom.getByRole('button', { name: label, exact: true }).click();
+    await phone.getByRole('heading', { name: heading, exact: true }).waitFor();
+    await phone.waitForTimeout(250);
+    const layout = await phone.evaluate(() => { const nav = document.querySelector('.bottom-nav'); const rect = nav.getBoundingClientRect(); return { overflow: document.documentElement.scrollWidth > innerWidth, fixed: getComputedStyle(nav).position === 'fixed', bottom: Math.abs(rect.bottom - innerHeight) < 1, height: rect.height, mainSize: Number.parseFloat(getComputedStyle(document.querySelector('.main-content')).paddingTop) }; });
+    if (layout.overflow || !layout.fixed || !layout.bottom || layout.height > 70 || layout.mainSize > 20) throw new Error(`Android compact layout failed: ${JSON.stringify(layout)}`);
+    await phone.screenshot({ path: path.join(out, `android-${label}.png`), fullPage: true });
+  }
+  await bottom.getByRole('button', { name: 'Капитал', exact: true }).click();
+  await phone.getByRole('heading', { name: 'Мой капитал', exact: true }).waitFor();
+  const debtPosition = await phone.evaluate(() => { const card = document.querySelector('.role-hand'); return card.querySelector('.borrowed-on-hand').compareDocumentPosition(card.querySelector('strong')) & Node.DOCUMENT_POSITION_FOLLOWING; });
+  if (!debtPosition) throw new Error('Borrowed amount must be below the hand label and above its big amount');
+  await phone.close();
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. No browser errors or horizontal overflow.');
+  console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. Android four-section fixed bottom menu/compact pages; no browser errors or horizontal overflow.');
 } finally {
   await browser.close();
 }

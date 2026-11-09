@@ -12,14 +12,13 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
   const split = allocations(data);
   const unassigned = data.accounts.filter(a => !a.role);
   const [assignRole, setAssignRole] = useState<'capital' | 'hand' | 'debt' | null>(null);
-  const borrowed = data.debts.filter(d => d.direction === 'i_owe').reduce((n, d) => n + d.principalKopecks, 0);
   return <>
     <PageHead eyebrow="ВАШИ ФИНАНСЫ · ОБЗОР" title="Мой капитал" description="Активы, остаток и распределение прибыли — в одной картине." action={<AddButton onClick={() => onEdit({ type: 'account' })}>Добавить счёт</AddButton>}/>
     <div className="overview-grid">
       <section className="balance-card">
         <div className="balance-top"><span><Wallet size={18}/>Общий капитал</span><IconButton label={hidden ? 'Показать суммы' : 'Скрыть суммы'} onClick={() => setHidden(!hidden)}>{hidden ? <EyeOff size={18}/> : <Eye size={18}/>}</IconButton></div>
         <div className="balance-amount">{amount(t.totalCapital)}</div>
-        <p>Активы + остаток · долги не вычитаются</p>
+        <p>Активы + остаток − мои долги</p>
         <div className="balance-bottom"><span><span className="status-dot green"/>Покупка переводит остаток в активы, продажа возвращает тело и 15% прибыли</span><ShieldCheck size={19}/></div>
         <div className="balance-art" aria-hidden="true"><div className="art-ring ring-one"/><div className="art-ring ring-two"/><div className="art-ring ring-three"/><div className="art-coin"><span>₽</span></div><div className="art-mini"><TrendingUp size={27}/></div></div>
       </section>
@@ -36,10 +35,10 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
         return <button className={`account-card role-account-card role-${role}`} key={role} onClick={() => account ? onEdit({ type: 'account', item: account }) : setAssignRole(role)}>
           <div className="account-card-top"><span className={`account-icon kind-${account?.kind ?? 'bank'}`}>{account ? <AccountIcon kind={account.kind}/> : <Wallet size={21}/>}</span><ArrowUpRight size={17}/></div>
           <span className="metric-label">{accountRoles[role]}</span>
+          {role === 'hand' && <small className="borrowed-on-hand">Взял в долг: {amount(t.payable)}</small>}
           <h3>{account?.name ?? 'Счёт не назначен'}</h3>
           <strong>{amount(split[role])}</strong>
           {account && (role === 'capital' || role === 'hand') && <small className="role-balance-small">На счёте: {amount(accountBalance(data, account.id))}</small>}
-          {role === 'hand' && <small className="borrowed-on-hand">Взял в долг: {amount(borrowed)}</small>}
           <div className="account-card-foot"><span>Начислено · без вычетов</span><span className="currency">RUB</span></div>
         </button>;
       })}

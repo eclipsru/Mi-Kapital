@@ -24,7 +24,8 @@ function createSyncServer(userData, store, onRemote) {
   let error = '';
   const clients = new Set();
   const deviceId = crypto.randomUUID();
-  const tokenBytes = () => Buffer.from(config.lanToken, 'hex');
+  // The wire token is 64 ASCII hex characters, not the 32 decoded bytes.
+  const tokenBytes = () => Buffer.from(config.lanToken, 'utf8');
   function authorized(req) {
     const header = req.headers.authorization || '';
     if (!header.startsWith('Bearer ')) return false;

@@ -9,5 +9,6 @@ fs.rmSync(target,{recursive:true,force:true});
 fs.mkdirSync(target,{recursive:true});
 for(const file of files){const dest=path.join(target,file.path);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(path.join('dist',file.path),dest);}
 const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
-fs.writeFileSync('android/app/src/main/assets/builtin.json',JSON.stringify({version:pkg.version,androidShellVersion:1,files},null,2)+'\n');
-console.log(`Android assets: ${files.length} verified web files, shell 1.`);
+const androidShellVersion=JSON.parse(fs.readFileSync(new URL('../android/shell-version.json',import.meta.url),'utf8')).version;
+fs.writeFileSync('android/app/src/main/assets/builtin.json',JSON.stringify({version:pkg.version,androidShellVersion,files},null,2)+'\n');
+console.log(`Android assets: ${files.length} verified web files, shell ${androidShellVersion}.`);

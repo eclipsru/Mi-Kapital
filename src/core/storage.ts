@@ -63,7 +63,7 @@ export function validateData(value: unknown): AppData {
     if (!goods.every(p => {
       if (!isObject(p) || !text(p.id) || !text(p.kind, 120) || !date(p.purchaseDate) || !note(p.description) || !text(p.createdAt, 40) || (p.status !== undefined && !['preparing','listed'].includes(String(p.status))) || (p.statusChangedAt !== undefined && !timestamp(p.statusChangedAt)) || (p.preparingStartedAt !== undefined && !timestamp(p.preparingStartedAt)) || (p.listedAt !== undefined && !timestamp(p.listedAt)) || !Array.isArray(p.photos) || p.photos.length > MAX_PRODUCT_PHOTOS || !p.photos.every(photo)) return false;
       if (p.voice !== undefined && !voice(p.voice)) return false;
-      if (!Array.isArray(p.funding) || p.funding.length < 1 || p.funding.length > 2 || !p.funding.every(f => isObject(f) && ['capital', 'pocket'].includes(String(f.source)) && amount(f.amountKopecks) && f.amountKopecks > 0 && typeof f.accountId === 'string' && (f.source === 'pocket' ? f.accountId.length <= 100 : liquidIds.has(f.accountId))) || new Set(p.funding.map(f => f.source)).size !== p.funding.length || productCost(p as unknown as ResaleProduct) > MAX_MONEY) return false;
+      if (!Array.isArray(p.funding) || p.funding.length > 2 || !p.funding.every(f => isObject(f) && ['capital', 'pocket'].includes(String(f.source)) && amount(f.amountKopecks) && f.amountKopecks > 0 && typeof f.accountId === 'string' && (f.source === 'pocket' ? f.accountId.length <= 100 : liquidIds.has(f.accountId))) || new Set(p.funding.map(f => f.source)).size !== p.funding.length || productCost(p as unknown as ResaleProduct) > MAX_MONEY) return false;
       if (p.investor !== undefined && (!isObject(p.investor) || !text(p.investor.name, 100) || !amount(p.investor.amountKopecks) || !Number.isInteger(p.investor.percentBasisPoints) || Number(p.investor.percentBasisPoints) < 0 || Number(p.investor.percentBasisPoints) > 10000 || !note(p.investor.terms))) return false;
       if (p.sale !== undefined && (!isObject(p.sale) || !amount(p.sale.priceKopecks) || !date(p.sale.date) || p.sale.date < p.purchaseDate || typeof p.sale.accountId !== 'string' || !liquidIds.has(p.sale.accountId))) return false;
       return true;
@@ -71,7 +71,7 @@ export function validateData(value: unknown): AppData {
   }
   if (value.sync !== undefined) {
     const sync = value.sync;
-    if (!isObject(sync) || !text(sync.device, 100) || !isObject(sync.clocks) || !isObject(sync.deleted)) return fail();
+    if (!isObject(sync) || !(sync.device === '' || text(sync.device, 100)) || !isObject(sync.clocks) || !isObject(sync.deleted)) return fail();
     for (const map of [sync.clocks, sync.deleted]) if (Object.keys(map).length > 100000 || !Object.entries(map).every(([key, clock]) => key.length <= 240 && typeof clock === 'string' && /^\d{13}-\d{6}-.{1,100}$/.test(clock))) return fail();
   }
   if (!amount(plan.income) || !amount(plan.expenses) || !amount(plan.debtPayment) || !amount(plan.goal) || !Number.isInteger(plan.months) || Number(plan.months) < 1 || Number(plan.months) > 60) return fail();
