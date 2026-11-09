@@ -54,8 +54,11 @@ jobs:
           $env:RELEASE_TAG="v$env:APP_VERSION"
           cmd /c "npm run desktop:build > candidate-build.log 2>&1"
           if ($LASTEXITCODE) {
-            Get-Content candidate-build.log -Tail 40
-            $detail=(Get-Content candidate-build.log -Tail 25 -Raw).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            $tail=@(Get-Content candidate-build.log -Tail 40 -ErrorAction SilentlyContinue)
+            $tail | Write-Output
+            $detail=($tail | Select-Object -Last 25 | Out-String)
+            if (!$detail.Trim()) { $detail='candidate-build.log is missing or empty' }
+            $detail=$detail.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
             Write-Output "::error title=Desktop build failed::$detail"
             exit $LASTEXITCODE
           }
