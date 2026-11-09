@@ -1,17 +1,13 @@
 'use strict';
-
 const { contextBridge, ipcRenderer } = require('electron');
-
-contextBridge.exposeInMainWorld('desktopUpdater', {
-  info: () => ipcRenderer.invoke('app:update:info'),
-  check: () => ipcRenderer.invoke('app:update:check'),
-  download: () => ipcRenderer.invoke('app:update:download'),
-  install: () => ipcRenderer.invoke('app:update:install'),
-  openRelease: () => ipcRenderer.invoke('app:update:open-release'),
-  notifyBootReady: () => ipcRenderer.send('app:boot:ready'),
-  onEvent: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on('app:update:event', listener);
-    return () => ipcRenderer.removeListener('app:update:event', listener);
-  },
-});
+contextBridge.exposeInMainWorld('desktop', Object.freeze({
+  info: () => ipcRenderer.invoke('info'),
+  checkUpdates: () => ipcRenderer.invoke('updates:check'),
+  installUpdate: () => ipcRenderer.invoke('updates:install'),
+  openReleases: () => ipcRenderer.invoke('updates:releases'),
+  onUpdate: callback => { const listener = (_event, state) => callback(state); ipcRenderer.on('updates:state', listener); return () => ipcRenderer.removeListener('updates:state', listener); },
+  loadData: () => ipcRenderer.invoke('data:load'),
+  saveData: data => ipcRenderer.invoke('data:save', data),
+  exportBackup: json => ipcRenderer.invoke('data:export', json),
+  bootReady: () => ipcRenderer.send('boot:ready'),
+}));
