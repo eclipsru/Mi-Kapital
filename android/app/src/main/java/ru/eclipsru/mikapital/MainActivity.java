@@ -36,7 +36,7 @@ public final class MainActivity extends Activity {
         }return super.shouldInterceptRequest(view,request);
       }
       @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){Uri uri=request.getUrl();if("appassets.androidplatform.net".equals(uri.getHost()))return false;openExternal(uri.toString());return true;}
-      @Override public void onPageFinished(WebView view,String url){evaluate("window.location.hash='"+initialRoute.matches("[a-z/-]+(\\?new=1)?")?initialRoute:"capital"+"'");}
+      @Override public void onPageFinished(WebView view,String url){String route=initialRoute.matches("[a-z/-]+(\\?new=1)?")?initialRoute:"capital";evaluate("window.location.hash='"+route+"'");}
     });
     web.setWebChromeClient(new WebChromeClient(){
       @Override public void onPermissionRequest(PermissionRequest request){boolean audio=request.getResources().length==1&&PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(request.getResources()[0]);if(audio&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)runOnUiThread(()->request.grant(request.getResources()));else if(audio){pendingAudioRequest=request;requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},AUDIO);}else request.deny();}
