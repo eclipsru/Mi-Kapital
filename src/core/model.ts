@@ -1,15 +1,17 @@
 export type AccountKind = 'cash' | 'bank' | 'investment' | 'other';
 export type DebtDirection = 'i_owe' | 'owed_to_me';
+export type DebtKind = 'business' | 'consumer';
+export const debtKindLabels: Record<DebtKind, string> = { business: 'На дело', consumer: 'Потребительские' };
 export type MovementKind = 'expense' | 'adjustment';
 export type AccountRole = 'capital' | 'debt' | 'hand';
 export interface Account { id: string; name: string; kind: AccountKind; openingKopecks: number; createdAt: string; role?: AccountRole }
 export interface Person { id: string; name: string; createdAt: string }
-export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; work?: WorkDetails; costKopecks?: number }
-export interface Payment { id: string; amountKopecks: number; date: string; accountId: string; note: string }
-export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; initialAccountId: string | null; payments: Payment[] }
-export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string }
+export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote; work?: WorkDetails; costKopecks?: number }
+export interface Payment { id: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote }
+export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; voice?: VoiceNote; kind?: DebtKind; initialAccountId: string | null; payments: Payment[] }
+export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote }
 export interface Plan { income: number; expenses: number; debtPayment: number; months: number; goal: number }
-export interface WorkPlan { id: string; kind: WorkKind; title: string; date: string; expectedKopecks: number; note: string; createdAt: string; values?: Record<string, string> }
+export interface WorkPlan { id: string; kind: WorkKind; title: string; date: string; expectedKopecks: number; note: string; voice?: VoiceNote; createdAt: string; values?: Record<string, string> }
 export type FundingSource = 'capital' | 'pocket';
 export interface ProductFunding { source: FundingSource; accountId: string; amountKopecks: number }
 export interface Investor { name: string; amountKopecks: number; percentBasisPoints: number; terms: string }
@@ -17,7 +19,7 @@ export interface VoiceNote { mimeType: string; dataUrl: string; durationSeconds:
 export interface ProductSale { priceKopecks: number; date: string; accountId: string }
 export type ProductStatus = 'preparing' | 'listed';
 export interface ResaleProduct { id: string; kind: string; purchaseDate: string; funding: ProductFunding[]; description: string; photos: string[]; voice?: VoiceNote; investor?: Investor; sale?: ProductSale; createdAt: string; status?: ProductStatus; statusChangedAt?: string; preparingStartedAt?: string; listedAt?: string }
-export interface AppData { schemaVersion: 1; accounts: Account[]; incomes: Income[]; debts: Debt[]; movements: Movement[]; plan: Plan; updatedAt: string; workPlans?: WorkPlan[]; products?: ResaleProduct[]; people?: Person[] }
+export interface AppData { schemaVersion: 1; accounts: Account[]; incomes: Income[]; debts: Debt[]; movements: Movement[]; plan: Plan; updatedAt: string; sync?: import('./sync').SyncMetadata; workPlans?: WorkPlan[]; products?: ResaleProduct[]; people?: Person[] }
 export interface LedgerItem { id: string; type: 'income' | 'expense' | 'adjustment' | 'debt' | 'payment' | 'product-purchase' | 'product-sale'; title: string; subtitle: string; date: string; amount: number; accountId: string | null; debtId?: string; positive: boolean }
 export const MAX_MONEY = 100_000_000_000_00; // 100 billion rubles, in kopecks
 export const PERSONAL_SHARE_BPS = 1500;
@@ -27,7 +29,7 @@ export const MAX_VOICE_CHARS = 1_500_000;
 export const MAX_VOICE_SECONDS = 90;
 export const MAX_SAVE_BYTES = 14_000_000;
 export const productKinds = ['Телефон', 'Ноутбук', 'Комплектующие', 'Инструмент', 'Автозапчасти', 'Мебель', 'Одежда', 'Другое'];
-export const fundingLabels: Record<FundingSource, string> = { capital: 'Капитал', pocket: 'Карман' };
+export const fundingLabels: Record<FundingSource, string> = { capital: 'Капитал', pocket: 'Из кармана' };
 export const products = (data: AppData): ResaleProduct[] => data.products ?? [];
 export const people = (data: AppData): Person[] => data.people ?? [];
 export const accountRoles: Record<AccountRole, string> = { capital: 'Капитал · 15%', hand: 'На руки · 70%', debt: 'На долги · 15%' };
@@ -35,7 +37,11 @@ export const accountRoleOrder: AccountRole[] = ['capital', 'hand', 'debt'];
 export const productStatusLabels: Record<ProductStatus | 'sold', string> = { preparing: 'На подготовке', listed: 'На продаже', sold: 'Продан' };
 export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
 export const productStatus = (p: ResaleProduct): ProductStatus | 'sold' => p.sale ? 'sold' : p.status ?? 'preparing';
+// «Из кармана» входит в цену покупки, активы и прибыль, но не списывается ни с одного счёта.
+// Со счетов списывается только часть «Капитал»; при продаже вся цена покупки возвращается на выбранный счёт.
+export const deductedFunding = (product: ResaleProduct) => product.funding.filter(f => f.source === 'capital');
 export const productCost = (product: ResaleProduct) => sum(product.funding.map(f => f.amountKopecks));
+export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
 // Exact integer rounding: percentages are basis points (15% = 1500, 12.5% = 1250).
 export function shareKopecks(amountKopecks: number, basisPoints: number): number {
   if (!Number.isSafeInteger(amountKopecks) || amountKopecks < 0 || !Number.isInteger(basisPoints) || basisPoints < 0 || basisPoints > 10000) throw new Error('Некорректная сумма или процент');
@@ -213,7 +219,7 @@ export function accountBalance(data: AppData, accountId: string): number {
   for (const item of data.incomes) if (item.accountId === accountId) balance += item.amountKopecks;
   for (const item of data.movements) if (item.accountId === accountId) balance += item.kind === 'expense' ? -item.amountKopecks : item.amountKopecks;
   for (const product of products(data)) {
-    for (const funding of product.funding) if (funding.accountId === accountId) balance -= funding.amountKopecks;
+    for (const funding of deductedFunding(product)) if (funding.accountId === accountId) balance -= funding.amountKopecks;
     if (product.sale?.accountId === accountId) balance += saleBreakdown(product).returnedKopecks;
   }
   for (const debt of data.debts) {
@@ -234,14 +240,14 @@ export function totals(data: AppData) {
   return { onHand: remainder, remainder, totalCapital, assets, liquidBalance: sum(liquidAccounts(data).map(a => accountBalance(data, a.id))), payable, receivable, incomeMonth, expenseMonth, incomeTotal: earnedIncome(data), resaleIncomeMonth: resaleEarnings(data, month), jobIncomeMonth: jobEarnings(data, month), allocations: allocations(data) };
 }
 export function accountReferenced(data: AppData, id: string): boolean {
-  return data.incomes.some(i => i.accountId === id) || data.movements.some(m => m.accountId === id) || data.debts.some(d => d.initialAccountId === id || d.payments.some(p => p.accountId === id)) || products(data).some(p => p.funding.some(f => f.accountId === id) || p.sale?.accountId === id);
+  return data.incomes.some(i => i.accountId === id) || data.movements.some(m => m.accountId === id) || data.debts.some(d => d.initialAccountId === id || d.payments.some(p => p.accountId === id)) || products(data).some(p => deductedFunding(p).some(f => f.accountId === id) || p.sale?.accountId === id);
 }
 export function ledger(data: AppData): LedgerItem[] {
   const accountName = (id: string | null) => data.accounts.find(a => a.id === id)?.name ?? 'Уже учтён в капитале';
   const items: LedgerItem[] = data.incomes.map(i => ({ id: i.id, type: 'income', title: i.title, subtitle: `${i.category} · ${accountName(i.accountId)}`, date: i.date, amount: i.amountKopecks, accountId: i.accountId, positive: true }));
   for (const product of products(data)) {
     const cost = productCost(product);
-    items.push({ id: `purchase-${product.id}`, type: 'product-purchase', title: `Покупка: ${product.kind}`, subtitle: product.funding.map(f => `${fundingLabels[f.source]} · ${accountName(f.accountId)}`).join(' + '), date: product.purchaseDate, amount: cost, accountId: product.funding[0]?.accountId ?? null, positive: false });
+    items.push({ id: `purchase-${product.id}`, type: 'product-purchase', title: `Покупка: ${product.kind}`, subtitle: product.funding.map(f => f.source === 'pocket' ? `${fundingLabels.pocket} · без списания` : `${fundingLabels.capital} · ${accountName(f.accountId)}`).join(' + '), date: product.purchaseDate, amount: cost, accountId: deductedFunding(product)[0]?.accountId ?? null, positive: false });
     if (product.sale) items.push({ id: `sale-${product.id}`, type: 'product-sale', title: `Продажа: ${product.kind}`, subtitle: `Возврат покупки + распределение прибыли · ${accountName(product.sale.accountId)}`, date: product.sale.date, amount: saleBreakdown(product).returnedKopecks, accountId: product.sale.accountId, positive: true });
   }
   for (const m of data.movements) items.push({ id: m.id, type: m.kind, title: m.title, subtitle: `${m.kind === 'expense' ? 'Расход' : 'Корректировка'} · ${accountName(m.accountId)}`, date: m.date, amount: m.amountKopecks, accountId: m.accountId, positive: m.kind === 'adjustment' && m.amountKopecks >= 0 });

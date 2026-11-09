@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { desktop } from './bridge';
 import { emptyData, type AppData } from './model';
 import { loadLocal, saveLocal, validateData } from './storage';
+import { deviceId as getDeviceId, mergeData, sameData, stampChanges } from './sync';
 export function useStore() {
   const [data, setData] = useState<AppData>(emptyData);
   const dataRef = useRef(data);
@@ -24,9 +25,13 @@ export function useStore() {
     })();
     return () => { alive = false; };
   }, []);
-  const commit = useCallback((fn: (current: AppData) => AppData) => {
+  const deviceId = useRef(getDeviceId());
+  const commit = useCallback((fn: (current: AppData) => AppData, remote = false) => {
     if (!loaded.current) return;
-    const next = validateData({ ...fn(dataRef.current), updatedAt: new Date().toISOString() });
+    const current = dataRef.current;
+    const proposed = fn(current);
+    const next = validateData({ ... (remote ? proposed : stampChanges(current, proposed, current.sync?.device ?? deviceId.current)), updatedAt: new Date().toISOString() });
+    if (remote && sameData(current, next)) return;
     dataRef.current = next;
     setData(next);
     setLoadError('');
@@ -44,6 +49,8 @@ export function useStore() {
   }, []);
   const update = useCallback((fn: (current: AppData) => AppData) => { if (!loaded.current) throw new Error('Данные ещё не загружены'); commit(fn); }, [commit]);
   const replace = useCallback((next: AppData) => { validateData(next); loaded.current = true; commit(() => next); }, [commit]);
+  const mergeRemote = useCallback((raw: unknown) => { if (!loaded.current) return; const remote = validateData(raw); commit(current => mergeData(current, remote), true); }, [commit]);
+  useEffect(() => { const bridge = desktop(); return bridge?.onRemoteData?.(mergeRemote); }, [mergeRemote]);
   const flush = useCallback(async () => { await queue.current; if (lastError.current) throw new Error('Не удалось сохранить данные. Экспортируйте резервную копию перед обновлением.'); }, []);
-  return { data, update, replace, ready, saveState, loadError, flush };
+  return { data, dataRef, update, replace, mergeRemote, ready, saveState, loadError, flush };
 }

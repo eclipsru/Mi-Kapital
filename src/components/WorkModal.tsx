@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
 import { cleanWorkValues, inputMoney, money, parseMoney, today, uid, validDate, workKindFields, workKinds, workTitle, type AppData, type Income, type WorkKind, type WorkPlan } from '../core/model';
 import { Button, Field, Modal } from './ui';
+import { VoiceField } from './VoiceField';
+import type { VoiceNote } from '../core/model';
 
 export type WorkRequest =
   | { type: 'odd-job'; item?: Income }
@@ -21,6 +23,8 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
   const [accountId, setAccountId] = useState(completed ? request.item?.accountId ?? data.accounts[0]?.id ?? '' : '');
   const [planTitle, setPlanTitle] = useState(!completed ? request.item?.title ?? '' : '');
   const [note, setNote] = useState(item?.note ?? '');
+  const [voice, setVoice] = useState<VoiceNote | undefined>(item?.voice);
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fields = workKindFields[kind];
@@ -29,6 +33,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
     setKind(next);
     setValues({});
     setError('');
+    if (voiceBusy) return setError('Остановите запись и дождитесь обработки аудио.');
   }
   function setValue(key: string, value: string) {
     setValues(current => ({ ...current, [key]: value }));
@@ -55,6 +60,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
         date,
         accountId,
         note: note.trim().slice(0, 2000),
+        ...(voice ? { voice } : {}),
         work: { kind, values: cleaned },
       };
       onSave({ ...data, incomes: editing ? data.incomes.map(i => i.id === income.id ? income : i) : [...data.incomes, income] }, editing ? 'Шабашка обновлена. Остаток счёта пересчитан.' : 'Шабашка добавлена и зачислена на выбранный счёт');
@@ -69,6 +75,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
         date,
         expectedKopecks: expected,
         note: note.trim().slice(0, 2000),
+        ...(voice ? { voice } : {}),
         createdAt: request.item?.createdAt ?? new Date().toISOString(),
         values: {},
       };
@@ -113,15 +120,13 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
       </Field>}
       {completed && <div className="form-note"><Check size={16}/><span>На счёт поступит вся полученная сумма. В доход направлений войдёт чистая прибыль: получено минус расходы. Распределение 15/15/70 считается в «Моём капитале».</span></div>}
       {!completed && <div className="form-note"><Check size={16}/><span>План пока не меняет капитал. Позже свяжем его с выполненной работой.</span></div>}
-      <Field label="Заметка · необязательно">
-        <textarea className="inp" maxLength={2000} rows={2} value={note} placeholder="Детали, которые важно не забыть" onChange={e => setNote(e.target.value)}/>
-      </Field>
+      <VoiceField value={note} onChange={setNote} voice={voice} onVoiceChange={setVoice} onBusyChange={setVoiceBusy}/>
       {error && <div className="form-error" role="alert"><AlertCircle size={17}/>{error}</div>}
       {confirmDelete && <div className="delete-confirm"><strong>Удалить запись?</strong><p>{completed ? 'Сумма будет пересчитана. Это действие нельзя отменить.' : 'План будет удалён. Выполненные доходы это не затронет.'}</p><div className="flex gap-2"><Button type="button" variant="danger" onClick={remove}>Да, удалить</Button><Button type="button" variant="secondary" onClick={() => setConfirmDelete(false)}>Отмена</Button></div></div>}
       <div className="modal-actions">
         {editing && <Button type="button" variant="ghost" className="delete-btn" onClick={() => { setConfirmDelete(true); setError(''); }}><Trash2 size={16}/>Удалить</Button>}
         <Button type="button" variant="secondary" onClick={onClose}>Отмена</Button>
-        <Button type="submit"><Check size={17}/>{editing ? 'Сохранить' : completed ? 'Добавить' : 'Запланировать'}</Button>
+        <Button type="submit" disabled={voiceBusy}><Check size={17}/>{editing ? 'Сохранить' : completed ? 'Добавить' : 'Запланировать'}</Button>
       </div>
     </form>
   </Modal>;

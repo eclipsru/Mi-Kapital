@@ -17,13 +17,14 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, de
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const url = process.env.APP_URL || 'http://127.0.0.1:5173';
-const shot = name => page.screenshot({ path: path.join(out, `${name}.png`), fullPage: true });
+const shot = async name => { await page.waitForTimeout(250); return page.screenshot({ path: path.join(out, `${name}.png`), fullPage: true }); };
 async function navigate(hash, heading) {
   await page.evaluate(value => { window.location.hash = value; }, hash);
   await page.getByRole('heading', { name: heading, exact: true }).waitFor();
   await page.waitForTimeout(200);
 }
 async function assertLayout(label) {
+  await page.waitForTimeout(250);
   const problem = await page.evaluate(() => {
     const directions = document.querySelector('.income-directions');
     if (directions && getComputedStyle(directions).display !== 'grid') return 'income direction cards lost their base layout';
@@ -71,7 +72,7 @@ try {
         income('legacy', 'Подарок на день рождения', 'Подарок', 3200000, 4, 'a2'),
       ],
       products: [
-        { id: 'g1', kind: 'Телефон', purchaseDate: month[0], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 1200000 }, { source: 'pocket', accountId: 'a2', amountKopecks: 600000 }], description: 'Проверен, полный комплект. Куплен для перепродажи.', photos: [], investor: { name: 'Алексей', amountKopecks: 500000, percentBasisPoints: 2000, terms: '20% от прибыли' }, createdAt: `${month[0]}T09:00:00.000Z`, status: 'preparing', preparingStartedAt: `${month[0]}T09:00:00.000Z` },
+        { id: 'g1', kind: 'Телефон', purchaseDate: month[0], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 1800000 }], description: 'Проверен, полный комплект. Куплен для перепродажи.', photos: [], investor: { name: 'Алексей', amountKopecks: 500000, percentBasisPoints: 2000, terms: '20% от прибыли' }, createdAt: `${month[0]}T09:00:00.000Z`, status: 'preparing', preparingStartedAt: `${month[0]}T09:00:00.000Z` },
         { id: 'g2', kind: 'Ноутбук', purchaseDate: month[1], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 2500000 }], description: 'После диагностики, готов к продаже.', photos: [], createdAt: `${month[1]}T09:00:00.000Z`, status: 'listed', preparingStartedAt: `${month[1]}T09:00:00.000Z`, listedAt: `${month[1]}T12:00:00.000Z`, statusChangedAt: `${month[1]}T12:00:00.000Z` },
         { id: 'g3', kind: 'Комплектующие', purchaseDate: month[1], funding: [{ source: 'capital', accountId: 'a1', amountKopecks: 800000 }], description: 'Продано комплектом.', photos: [], investor: { name: 'Михаил', amountKopecks: 0, percentBasisPoints: 1000, terms: '10% прибыли' }, sale: { priceKopecks: 1200000, date: month[0], accountId: 'a1' }, createdAt: `${month[1]}T09:00:00.000Z`, preparingStartedAt: `${month[1]}T09:00:00.000Z` },
       ],
@@ -120,16 +121,26 @@ try {
   await page.locator('.voice-field audio').waitFor();
   await shot('09-product-form');
   await page.getByLabel('Вид товара', { exact: true }).fill('Тестовый товар');
+  await page.getByLabel('Сумма из капитала, ₽', { exact: true }).fill('999999');
+  await page.locator('.modal button[type="submit"]').click();
+  if (!(await page.getByRole('alert').textContent())?.includes('не больше')) throw new Error('Capital funding cap missing');
+  await shot('09-capital-funding-cap');
+  await page.getByLabel('Вид товара', { exact: true }).fill('Тестовый товар');
   await page.getByLabel('Сумма из капитала, ₽', { exact: true }).fill('100');
+  await page.getByLabel('Из кармана', { exact: true }).check();
+  await page.getByLabel('Сумма из кармана, ₽', { exact: true }).fill('50');
+  const purchaseTotal = await page.locator('.purchase-total strong').textContent();
+  if (!purchaseTotal?.includes('150')) throw new Error('Pocket funding must increase purchase price');
   await page.getByRole('button', { name: 'Добавить товар', exact: true }).last().click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
-  const mediaSaved = await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('mi-kapital.v2.local')).products.at(-1); return p.kind === 'Тестовый товар' && p.photos.length === 1 && p.voice.dataUrl.startsWith('data:audio/webm;base64,'); });
+  const mediaSaved = await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('mi-kapital.v2.local')).products.at(-1); return p.kind === 'Тестовый товар' && p.photos.length === 1 && p.voice.dataUrl.startsWith('data:audio/webm;base64,') && p.funding.some(f => f.source === 'pocket' && f.amountKopecks === 5000 && f.accountId === ''); });
   if (!mediaSaved) throw new Error('Product photo/voice did not persist through the real form');
 
   await page.getByRole('button', { name: 'Продать', exact: true }).first().click();
   await page.getByRole('dialog').waitFor();
   await page.getByLabel('Цена продажи, ₽').fill('25000');
   await shot('09-sale-form');
+  await shot('09-product-voice');
   await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   await page.getByRole('button', { name: 'К доходам', exact: true }).click();
   await page.getByRole('heading', { name: 'Доходы', exact: true }).waitFor();
@@ -161,11 +172,23 @@ try {
   await navigate('debts', 'Долги'); await shot('04-debts');
   await page.getByRole('button', { name: 'Отдать', exact: true }).first().click();
   await page.getByRole('dialog').waitFor(); await shot('04-debts-repay');
+  if (!(await page.getByRole('button', { name: 'Записать голосом', exact: true }).count())) throw new Error('Repayment voice missing');
   await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   await page.getByRole('button', { name: 'Добавить человека', exact: true }).click();
   await page.getByRole('dialog').waitFor(); await shot('04-person-form');
   await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await page.getByRole('button', { name: 'Добавить долг', exact: true }).first().click();
+  await page.getByRole('dialog').waitFor(); await shot('04-debt-form');
+  await page.getByLabel('Вид долга', { exact: true }).selectOption('consumer');
+  await page.getByLabel('Кому вы должны', { exact: true }).selectOption('Алексей');
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   await navigate('calculation', 'Расчёт'); await shot('05-calculation');
+  await page.getByRole('button', { name: 'Данные и настройки', exact: true }).click();
+  await page.getByRole('dialog').waitFor(); await shot('06-sync-settings');
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await page.getByRole('button', { name: 'Скачать Android-приложение по QR-коду', exact: true }).click();
+  await page.getByRole('dialog').waitFor(); await shot('06-android-qr');
+  await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await page.getByRole('button', { name: 'Обновления', exact: true }).click();
   await page.getByRole('dialog').waitFor(); await shot('06-updates');
   await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
@@ -185,6 +208,7 @@ try {
     await page.getByRole('button', { name: 'Показать всю историю', exact: true }).click(); await page.waitForTimeout(220); await assertLayout(`legacy history ${width}px`); await shot(`income-history-${width}`);
     await page.getByRole('button', { name: 'Вернуться к доходам', exact: true }).click();
     await navigate('debts', 'Долги'); await assertLayout(`debts ${width}px`); await shot(`debts-${width}`);
+    await page.getByRole('button', { name: 'Добавить долг', exact: true }).first().click(); await page.getByRole('dialog').waitFor(); await assertLayout(`debt form ${width}px`); await shot(`debt-form-${width}`); await page.getByRole('button', { name: 'Отмена', exact: true }).click();
   }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. No browser errors or horizontal overflow.');

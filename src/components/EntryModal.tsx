@@ -2,6 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
 import { accountReferenced, accountKinds, accountRoles, accountRoleOrder, incomeCategories, incomeCategoryOptions, debtPaid, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AccountRole, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment, products } from '../core/model';
 import { Button, Field, Modal } from './ui';
+import { VoiceField } from './VoiceField';
+import { people, type DebtKind, type VoiceNote } from '../core/model';
 export type EntryRequest = { type: 'account'; item?: Account; role?: AccountRole } | { type: 'income'; item: Income; category?: IncomeCategory } | { type: 'debt'; item?: Debt } | { type: 'payment'; debt: Debt; item?: Payment } | { type: 'movement'; item?: Movement; kind?: 'expense' | 'adjustment' };
 export function EntryModal({ request, data, onClose, onSave, onDelete }: { request: EntryRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
   const item = request.type === 'payment' ? request.item : request.item;
@@ -17,19 +19,23 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
   const [direction, setDirection] = useState<'i_owe'|'owed_to_me'>(request.type === 'debt' ? request.item?.direction ?? 'i_owe' : 'i_owe');
   const [movementKind, setMovementKind] = useState<'expense'|'adjustment'>(request.type === 'movement' ? request.item?.kind ?? request.kind ?? 'expense' : 'expense');
   const [note, setNote] = useState(item && 'note' in item ? item.note : '');
+  const [voice, setVoice] = useState<VoiceNote | undefined>(item && 'voice' in item ? item.voice : undefined);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [debtKind, setDebtKind] = useState<DebtKind>(request.type === 'debt' ? request.item?.kind ?? 'business' : 'business');
   const [error, setError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const editing = !!item;
   const labels = { account: editing ? 'Изменить счёт' : 'Новый счёт', income: editing ? 'Изменить доход' : 'Новый доход', debt: editing ? 'Изменить долг' : 'Новый долг', payment: request.type === 'payment' && request.debt.direction === 'owed_to_me' ? 'Возврат долга' : 'Погашение долга', movement: editing ? 'Изменить операцию' : 'Новая операция' };
   function submit(event: FormEvent) {
     event.preventDefault(); setError('');
+    if (voiceBusy) return setError('Остановите запись и дождитесь обработки аудио.');
     const value = parseMoney(amount, request.type === 'movement' && movementKind === 'adjustment');
     if (value === null || (request.type !== 'account' && value === 0) || (request.type !== 'account' && !(request.type === 'movement' && movementKind === 'adjustment') && value < 0)) return setError('Введите корректную сумму: до двух знаков после запятой, не больше 100 млрд ₽.');
     if (!validDate(date) || dueDate && !validDate(dueDate)) return setError('Проверьте дату. Формат: ДД.ММ.ГГГГ.');
     if (dueDate && dueDate < date) return setError('Срок возврата не может быть раньше даты создания долга.');
     if (request.type !== 'payment' && !name.trim()) return setError('Укажите название.');
     if (['income','payment','movement'].includes(request.type) && !data.accounts.some(a => a.id === accountId)) return setError('Сначала создайте счёт в разделе «Мой капитал».');
-    const common = { title: name.trim().slice(0,120), amountKopecks:value, date, accountId, note:note.trim().slice(0,2000) };
+    const common = { ...(voice ? { voice } : {}), title: name.trim().slice(0,120), amountKopecks:value, date, accountId, note:note.trim().slice(0,2000) };
     if (request.type === 'account' && request.item && ['cash','bank'].includes(request.item.kind) && !['cash','bank'].includes(kind) && products(data).some(p => p.funding.some(f => f.accountId === request.item!.id) || p.sale?.accountId === request.item!.id)) return setError('Этот счёт используется в товарах. Сначала измените источники покупки или счёт продажи.');
     if (request.type === 'account') {
       if (role && data.accounts.some(a => a.id !== request.item?.id && a.role === role)) return setError(`Роль «${accountRoles[role]}» уже назначена другому счёту. Сначала снимите её там.`);
@@ -43,9 +49,10 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
       const movement: Movement = { ...common, id:request.item?.id ?? uid(), kind:movementKind };
       onSave({ ...data, movements:editing ? data.movements.map(m=>m.id===movement.id?movement:m) : [...data.movements,movement] }, 'Операция сохранена. Капитал пересчитан.');
     } else if (request.type === 'debt') {
-      if (!counterparty.trim()) return setError('Укажите, кому вы должны или кто должен вам.');
+      if (!counterparty.trim()) return setError('Выберите человека из списка.');
+      if (!people(data).some(p => p.name === counterparty) && request.item?.counterparty !== counterparty) return setError('Сначала добавьте человека кнопкой «+» в разделе «Долги».');
       if (editing && value < debtPaid(request.item!)) return setError('Сумма долга не может быть меньше уже внесённых платежей.');
-      const debt: Debt = { id:request.item?.id ?? uid(), title:common.title, counterparty:counterparty.trim().slice(0,100), direction, principalKopecks:value, date, dueDate, note:common.note, initialAccountId:accountId || null, payments:request.item?.payments ?? [] };
+      const debt: Debt = { id:request.item?.id ?? uid(), title:common.title, counterparty:counterparty.trim().slice(0,100), direction, principalKopecks:value, date, dueDate, note:common.note, ...(voice ? { voice } : {}), kind:debtKind, initialAccountId:accountId || null, payments:request.item?.payments ?? [] };
       onSave({ ...data, debts:editing ? data.debts.map(d=>d.id===debt.id?debt:d) : [...data.debts,debt] }, editing ? 'Долг обновлён' : 'Долг добавлен');
     } else {
       if (editing) {
@@ -77,16 +84,17 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
     {request.type !== 'payment' && <Field label={request.type==='account'?'Название счёта':'Название'}><input className="inp" required maxLength={request.type==='account'?80:120} value={name} onChange={e=>setName(e.target.value)} placeholder={request.type==='account'?'Например, Основная карта':request.type==='debt'?'Например, заём на ремонт':request.type==='income'?(category==='Шабашки'?'Например, ремонт на выходных':'Например, продажа инструмента'):'Например, поступление за ноябрь'} autoComplete="off"/></Field>}
     {request.type==='account' && <Field label="Тип счёта"><select className="inp" value={kind} onChange={e=>setKind(e.target.value as AccountKind)}>{Object.entries(accountKinds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></Field>}
     {request.type==='account' && <Field label="Роль в распределении прибыли" hint="Карточка роли показывает начисленные проценты и ничего не вычитает."><select className="inp" value={role} onChange={e=>setRole(e.target.value as AccountRole | '')}><option value="">Без роли</option>{accountRoleOrder.map(r=><option key={r} value={r}>{accountRoles[r]}</option>)}</select></Field>}
-    {request.type==='debt' && <Field label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'}><input className="inp" required maxLength={100} value={counterparty} onChange={e=>setCounterparty(e.target.value)} placeholder="Имя человека или название организации"/></Field>}
+    {request.type==='debt' && <Field label="Вид долга"><select className="inp" aria-label="Вид долга" value={debtKind} onChange={e=>setDebtKind(e.target.value as DebtKind)}><option value="business">На дело</option><option value="consumer">Потребительские</option></select></Field>}
+    {request.type==='debt' && <Field label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'} hint="Новый человек добавляется кнопкой «+» в разделе «Долги»."><select className="inp" aria-label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'} required value={counterparty} onChange={e=>setCounterparty(e.target.value)}><option value="">Выберите человека</option>{people(data).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}{counterparty && !people(data).some(p=>p.name===counterparty) && <option value={counterparty}>{counterparty}</option>}</select></Field>}
     <div className="form-row"><Field label={request.type==='account'?'Начальный остаток, ₽':request.type==='debt'?'Изначальная сумма, ₽':'Сумма, ₽'} hint={request.type==='account'?'Деньги, которые уже есть до записанных операций.':movementKind==='adjustment'&&request.type==='movement'?'Можно указать отрицательную сумму.':''}><input className="inp money-input" required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/></Field>{request.type!=='account' && <Field label="Дата"><input className="inp" type="date" required min="1900-01-01" max="2200-12-31" value={date} onChange={e=>setDate(e.target.value)}/></Field>}</div>
     {request.type==='income' && <Field label="Направление дохода" hint="Прежняя запись. Новые товары добавляйте на странице «Перепродажи», работы — в «Шабашках»."><select className="inp" value={category} onChange={e=>setCategory(e.target.value)}>{incomeCategoryOptions(request.item?.category).map(c=><option key={c}>{c}</option>)}</select></Field>}
     {request.type==='debt' && <Field label="Срок возврата · необязательно"><input className="inp" type="date" min={date} max="2200-12-31" value={dueDate} onChange={e=>setDueDate(e.target.value)}/></Field>}
     {request.type!=='account' && <Field label={request.type==='debt'?'Движение денег при создании':'Счёт'} hint={request.type==='debt'?'Выберите «Уже учтено», если сумма долга не должна менять остаток счёта.':undefined}><select className="inp" required={accountRequired} value={accountId} onChange={e=>setAccountId(e.target.value)}>{request.type==='debt' && <option value="">Уже учтено — не менять счёт</option>}{!data.accounts.length && <option value="">Сначала создайте счёт</option>}{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
     {request.type==='income' && <div className="form-note"><Check size={16}/><span>Сумма прежней записи остаётся на счёте. В доход направлений входит чистая прибыль; распределение 15/15/70 считается отдельно.</span></div>}
     {request.type==='payment' && <div className="form-note"><Check size={16}/><span>{request.debt.direction==='i_owe'?'Сумма будет списана со счёта, а ваш долг уменьшится.':'Сумма поступит на счёт, а долг вам уменьшится.'}</span></div>}
-    {request.type!=='account' && <Field label="Заметка · необязательно"><textarea className="inp" maxLength={2000} rows={2} value={note} onChange={e=>setNote(e.target.value)} placeholder="Детали, которые важно не забыть"/></Field>}
+    {request.type!=='account' && <VoiceField value={note} onChange={setNote} voice={voice} onVoiceChange={setVoice} onBusyChange={setVoiceBusy}/>}
     {error && <div className="form-error" role="alert"><AlertCircle size={17}/>{error}</div>}
     {confirmDelete && <div className="delete-confirm"><strong>Удалить запись?</strong><p>Связанные суммы будут пересчитаны. Это действие нельзя отменить.</p><div className="flex gap-2"><Button type="button" variant="danger" onClick={remove}>Да, удалить</Button><Button type="button" variant="secondary" onClick={()=>setConfirmDelete(false)}>Отмена</Button></div></div>}
-    <div className="modal-actions">{editing && <Button type="button" variant="ghost" className="delete-btn" onClick={()=>{setConfirmDelete(true);setError('');}}><Trash2 size={16}/>Удалить</Button>}<Button type="button" variant="secondary" onClick={onClose}>Отмена</Button><Button type="submit"><Check size={17}/>{editing?'Сохранить':'Добавить'}</Button></div>
+    <div className="modal-actions">{editing && <Button type="button" variant="ghost" className="delete-btn" onClick={()=>{setConfirmDelete(true);setError('');}}><Trash2 size={16}/>Удалить</Button>}<Button type="button" variant="secondary" onClick={onClose}>Отмена</Button><Button type="submit" disabled={voiceBusy}><Check size={17}/>{editing?'Сохранить':'Добавить'}</Button></div>
   </form></Modal>;
 }

@@ -20,8 +20,10 @@
     "visual": "node scripts/visual-check.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
     "electron-updater": "6.8.11",
     "lucide-react": "0.468.0",
+    "qrcode.react": "^4.2.0",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "semver": "7.8.6"
@@ -47,10 +49,31 @@
     "executableName": "Mi-Kapital",
     "artifactName": "Mi-Kapital-Setup-${version}.${ext}",
     "asar": true,
-    "files": ["dist/**/*", "electron/**/*", "assets/icon.png", "assets/icon.ico", "package.json"],
-    "directories": { "output": "release", "buildResources": "assets" },
-    "publish": [{ "provider": "github", "owner": "eclipsru", "repo": "Mi-Kapital", "releaseType": "release" }],
-    "win": { "target": ["nsis"], "icon": "assets/icon.ico" },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/icon.png",
+      "assets/icon.ico",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "eclipsru",
+        "repo": "Mi-Kapital",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,

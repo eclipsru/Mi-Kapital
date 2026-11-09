@@ -69,18 +69,20 @@ describe('odd jobs page model',()=>{
 });
 describe('resale products and personal income',()=>{
   const product:ResaleProduct={id:'g1',kind:'Телефон',purchaseDate:'2026-01-01',funding:[{source:'capital',accountId:'a',amountKopecks:600000},{source:'pocket',accountId:'a',amountKopecks:400000}],description:'Проверен',photos:[],createdAt:'2026-01-01',investor:{name:'Алексей',amountKopecks:300000,percentBasisPoints:2000,terms:'20% прибыли'}};
-  it('deducts both funding sources once and counts only unsold goods at actual purchase cost',()=>{
+  it('includes «Из кармана» in cost/assets/profit but never deducts it from an account',()=>{
     const d={...emptyData(),accounts:[account],products:[product]};
-    expect(productCost(product)).toBe(1000000);expect(accountBalance(d,'a')).toBe(-900000);expect(totals(d).onHand).toBe(-900000);expect(inventoryValue(d)).toBe(1000000);expect(totals(d).assets).toBe(1000000);expect(earnedIncome(d)).toBe(0);expect(accountReferenced(d,'a')).toBe(true);
+    expect(productCost(product)).toBe(1000000);expect(accountBalance(d,'a')).toBe(-500000);expect(totals(d).onHand).toBe(-500000);expect(inventoryValue(d)).toBe(1000000);expect(totals(d).assets).toBe(1000000);expect(earnedIncome(d)).toBe(0);expect(accountReferenced(d,'a')).toBe(true);
+    const pocketOnly={...product,funding:[{source:'pocket' as const,accountId:'',amountKopecks:400000}]};const pd={...emptyData(),accounts:[account],products:[pocketOnly]};
+    expect(validateData(pd).products![0].funding[0].accountId).toBe('');expect(accountBalance(pd,'a')).toBe(100000);expect(productCost(pocketOnly)).toBe(400000);expect(accountReferenced(pd,'a')).toBe(false);
   });
   it('deducts investor profit share before 15%, returns purchase cost plus earnings exactly once',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
     expect(saleBreakdown(sold)).toMatchObject({profit:500000,investorKopecks:100000,personalProfit:400000,earnedKopecks:60000,returnedKopecks:1060000,remainderKopecks:340000});
-    expect(accountBalance(d,'a')).toBe(160000);expect(totals(d).onHand).toBe(160000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(400000);expect(resaleEarnings(d, today().slice(0,7))).toBe(400000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
+    expect(accountBalance(d,'a')).toBe(560000);expect(totals(d).onHand).toBe(560000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(400000);expect(resaleEarnings(d, today().slice(0,7))).toBe(400000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
   });
   it('does not invent earnings at break-even and applies a full loss to cash',()=>{
-    const even={...product,sale:{priceKopecks:1000000,date:today(),accountId:'a'}};expect(saleBreakdown(even).earnedKopecks).toBe(0);expect(totals({...emptyData(),accounts:[account],products:[even]}).onHand).toBe(100000);
-    const loss={...product,sale:{priceKopecks:800000,date:today(),accountId:'a'}};expect(saleBreakdown(loss)).toMatchObject({profit:-200000,investorKopecks:0,earnedKopecks:0,returnedKopecks:800000});expect(totals({...emptyData(),accounts:[account],products:[loss]}).onHand).toBe(-100000);
+    const even={...product,sale:{priceKopecks:1000000,date:today(),accountId:'a'}};expect(saleBreakdown(even).earnedKopecks).toBe(0);expect(totals({...emptyData(),accounts:[account],products:[even]}).onHand).toBe(500000);
+    const loss={...product,sale:{priceKopecks:400000,date:today(),accountId:'a'}};expect(saleBreakdown(loss)).toMatchObject({profit:-600000,investorKopecks:0,earnedKopecks:0,returnedKopecks:400000});expect(totals({...emptyData(),accounts:[account],products:[loss]}).onHand).toBe(-100000);
   });
   it('uses exact kopeck rounding and excludes debt principals and non-cash accounts from on-hand',()=>{
     expect(shareKopecks(1,1500)).toBe(0);expect(shareKopecks(10,1500)).toBe(2);expect(shareKopecks(1000000000000,1500)).toBe(150000000000);expect(parsePercent('12,5')).toBe(1250);expect(parsePercent('100,01')).toBeNull();
@@ -89,8 +91,8 @@ describe('resale products and personal income',()=>{
   });
   it('reverses edits, sale cancellation and deletion without duplicate movements',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
-    const {sale,...unsold}=sold;expect(totals({...d,products:[unsold]}).onHand).toBe(-900000);expect(inventoryValue({...d,products:[unsold]})).toBe(1000000);expect(totals({...d,products:[]}).onHand).toBe(100000);
-    expect(totals({...d,products:[{...sold,sale:{...sold.sale!,priceKopecks:2000000}}]}).onHand).toBe(220000);
+    const {sale,...unsold}=sold;expect(totals({...d,products:[unsold]}).onHand).toBe(-500000);expect(inventoryValue({...d,products:[unsold]})).toBe(1000000);expect(totals({...d,products:[]}).onHand).toBe(100000);
+    expect(totals({...d,products:[{...sold,sale:{...sold.sale!,priceKopecks:1600000}}]}).onHand).toBe(572000);
   });
   it('roundtrips products, photos, voice and investor in backups and accepts old backups without products',()=>{
     const rich={...product,photos:['data:image/png;base64,aGVsbG8='],voice:{mimeType:'audio/webm',dataUrl:'data:audio/webm;base64,aGVsbG8=',durationSeconds:2}};const d={...emptyData(),accounts:[account],products:[rich]};expect(parseBackup(serializeBackup(d))).toEqual(d);

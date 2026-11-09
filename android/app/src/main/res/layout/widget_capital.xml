@@ -1,0 +1,6 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="16dp" android:background="@drawable/widget_bg">
+  <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="МОЙ КАПИТАЛ" android:textColor="#FF9F40" android:textSize="11sp" android:textStyle="bold"/>
+  <TextView android:id="@+id/total" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="0 ₽" android:textColor="#FFFFFF" android:textSize="28sp" android:textStyle="bold"/>
+  <TextView android:id="@+id/details" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Остаток и активы" android:textColor="#BCC3D0" android:textSize="12sp"/>
+  <TextView android:id="@+id/updated" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Нажмите, чтобы открыть" android:textColor="#8992A3" android:textSize="10sp"/>
+</LinearLayout>
