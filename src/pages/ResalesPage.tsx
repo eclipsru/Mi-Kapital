@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCheck, ImageOff, Mic, Package, Search, TrendingUp, Users, Wallet, X } from 'lucide-react';
-import { formatDate, formatDuration, fundingLabels, inventoryProducts, money, monthKey, monthLabel, productCost, productStatus, productStatusLabels, products, resaleInventoryValue, resaleNetProfit, saleBreakdown, soldProducts, statusDurations, sum, today, type AppData, type ResaleProduct } from '../core/model';
+import { formatDate, formatDuration, fundingLabels, inventoryProducts, money, monthKey, monthLabel, productCost, productStatus, productStatusLabels, products, purchasePriceLabel, resaleInventoryValue, resaleNetProfit, saleBreakdown, soldProducts, statusDurations, sum, today, type AppData, type ResaleProduct } from '../core/model';
 import { AddButton, Badge, Button, Empty, PageHead, SectionHead } from '../components/ui';
 import type { ProductRequest } from '../components/ProductModal';
 
@@ -45,14 +45,14 @@ function ProductCard({ product, onEdit }: { product: ResaleProduct; onEdit: (req
     <div className="product-card-image">{product.photos[0] ? <img src={product.photos[0]} alt={product.kind}/> : <div className="product-no-photo"><ImageOff size={22}/><span>Без фото</span></div>}<Badge tone={status === 'sold' ? 'green' : status === 'listed' ? 'orange' : 'neutral'}>{productStatusLabels[status]}</Badge></div>
     <div className="product-card-body">
       <button className="text-link product-title" onClick={() => onEdit({ type: 'product', item: product })}>{product.kind}<ArrowUpRight size={14}/></button>
-      <div className="product-cost"><span>Цена покупки</span><strong>{money(productCost(product))}</strong></div>
+      <div className="product-cost"><span>Цена покупки</span><strong>{purchasePriceLabel(productCost(product))}</strong></div>
       <div className="product-meta"><span><CalendarDays size={12}/>{formatDate(product.purchaseDate)}</span>{product.voice && <span><Mic size={12}/></span>}{product.photos.length > 0 && <span>{product.photos.length} фото</span>}</div>
       <div className="product-status-times" aria-label="Время в состояниях">
         <span>Подготовка: {formatDuration(durations.preparingMs)}</span>
         {(durations.listedMs > 0 || status === 'listed') && <span>Продажа: {formatDuration(durations.listedMs)}</span>}
         {status === 'sold' && <span>Продан: {formatDuration(durations.soldMs)}</span>}
       </div>
-      <div className="product-funding-tags">{product.funding.map(f => <span key={f.source}>{fundingLabels[f.source]} · {money(f.amountKopecks)}</span>)}</div>
+      <div className="product-funding-tags">{product.funding.length ? product.funding.map(f => <span key={f.source}>{fundingLabels[f.source]} · {money(f.amountKopecks)}</span>) : <span>Без вложений</span>}</div>
       {product.investor && <div className="product-investor"><Users size={13}/><span>{product.investor.name} · {product.investor.percentBasisPoints / 100}%</span></div>}
       {product.sale ? <div className="product-sale-result"><div><span>Продан {formatDate(product.sale.date)}</span><strong>{money(product.sale.priceKopecks)}</strong></div><div><span>Чистая прибыль</span><strong className={result.personalProfit >= 0 ? 'text-green' : 'text-red'}>{money(result.personalProfit)}</strong></div></div> : product.description ? <p className="product-description">{product.description}</p> : null}
       <div className="product-card-actions"><Button variant="secondary" className="btn-small" onClick={() => onEdit({ type: 'product', item: product })}>Вложения</Button><Button className="btn-small" onClick={() => onEdit({ type: 'product-sale', item: product })}>{product.sale ? 'Изменить продажу' : 'Продать'}</Button></div>

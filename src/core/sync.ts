@@ -49,7 +49,7 @@ export function stampChanges(before: AppData, after: AppData, device: string, no
   if (comparable(before.plan) !== comparable(after.plan)) metadata.clocks.plan = stamp();
   return { ...after, sync: metadata };
 }
-function mergeRows(a: AppData, b: AppData, collection: Collection, ma: SyncMetadata, mb: SyncMetadata, metadata: SyncMetadata): RecordWithId[] {
+function mergeRows(a: AppData, b: AppData, collection: Collection, ma: SyncMetadata, mb: SyncMetadata, metadata: SyncMetadata, preferRemote: boolean): RecordWithId[] {
   const leftRows = rows(a, collection), rightRows = rows(b, collection);
   const all = new Map([...leftRows, ...rightRows].map(r => [r.id, r]));
   return [...all.entries()].flatMap(([id, record]) => {
@@ -58,18 +58,19 @@ function mergeRows(a: AppData, b: AppData, collection: Collection, ma: SyncMetad
     const clock = maxClock(lc, rc);
     if (metadata.deleted[key] && metadata.deleted[key] >= clock) return [];
     const left = leftRows.find(r => r.id === id), right = rightRows.find(r => r.id === id);
-    const winner: RecordWithId = lc !== rc ? (lc > rc ? left ?? right : right ?? left) ?? record : left && right ? comparable(left) >= comparable(right) ? left : right : record;
+    const winner: RecordWithId = lc !== rc ? (lc > rc ? left ?? right : right ?? left) ?? record : left && right ? (preferRemote ? right : comparable(left) >= comparable(right) ? left : right) : record;
     return [winner];
   }).sort((x, y) => x.id.localeCompare(y.id));
 }
-export function mergeData(a: AppData, b: AppData): AppData {
+// The paired PC is authoritative only for equal-clock/legacy ties; newer phone edits still win.
+export function mergeData(a: AppData, b: AppData, preferRemote = false): AppData {
   const ma = a.sync ?? { device: '', clocks: {}, deleted: {} };
   const mb = b.sync ?? { device: '', clocks: {}, deleted: {} };
   const metadata: SyncMetadata = { device: ma.device || mb.device, clocks: { ...ma.clocks }, deleted: { ...ma.deleted } };
   for (const [key, value] of Object.entries(mb.clocks)) metadata.clocks[key] = maxClock(metadata.clocks[key], value);
   for (const [key, value] of Object.entries(mb.deleted)) metadata.deleted[key] = maxClock(metadata.deleted[key], value);
-  const result: AppData = { ...emptyData(), updatedAt: a.updatedAt > b.updatedAt ? a.updatedAt : b.updatedAt, sync: metadata, plan: (ma.clocks.plan ?? '') !== (mb.clocks.plan ?? '') ? (ma.clocks.plan ?? '') > (mb.clocks.plan ?? '') ? a.plan : b.plan : comparable(a.plan) >= comparable(b.plan) ? a.plan : b.plan };
-  for (const collection of collections) (result as unknown as Record<string, unknown>)[collection] = mergeRows(a, b, collection, ma, mb, metadata);
+  const result: AppData = { ...emptyData(), updatedAt: a.updatedAt > b.updatedAt ? a.updatedAt : b.updatedAt, sync: metadata, plan: (ma.clocks.plan ?? '') !== (mb.clocks.plan ?? '') ? (ma.clocks.plan ?? '') > (mb.clocks.plan ?? '') ? a.plan : b.plan : preferRemote || comparable(a.plan) < comparable(b.plan) ? b.plan : a.plan };
+  for (const collection of collections) (result as unknown as Record<string, unknown>)[collection] = mergeRows(a, b, collection, ma, mb, metadata, preferRemote);
   result.debts = result.debts.map(debt => {
     const da = a.debts.find(d => d.id === debt.id), db = b.debts.find(d => d.id === debt.id);
     const payments = new Map([...(da?.payments ?? []), ...(db?.payments ?? [])].map(p => [p.id, p]));
@@ -78,10 +79,11 @@ export function mergeData(a: AppData, b: AppData): AppData {
       const lc = ma.clocks[key] ?? '', rc = mb.clocks[key] ?? '';
       if (metadata.deleted[key] && metadata.deleted[key] >= maxClock(lc, rc)) return [];
       const pa = da?.payments.find(p => p.id === id), pb = db?.payments.find(p => p.id === id);
-      const winner: typeof payment = lc !== rc ? (lc > rc ? pa ?? pb : pb ?? pa) ?? payment : pa && pb ? comparable(pa) >= comparable(pb) ? pa : pb : payment;
+      const winner: typeof payment = lc !== rc ? (lc > rc ? pa ?? pb : pb ?? pa) ?? payment : pa && pb ? (preferRemote ? pb : comparable(pa) >= comparable(pb) ? pa : pb) : payment;
     return [winner];
     }).sort((x, y) => x.id.localeCompare(y.id)) };
   });
+  if (!metadata.device && Object.keys(metadata.clocks).length === 0 && Object.keys(metadata.deleted).length === 0) delete result.sync;
   return result;
 }
 export function conflictMessage(error: unknown): string {

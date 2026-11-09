@@ -1,4 +1,5 @@
 plugins { id 'com.android.application' }
+def androidShellVersion = new groovy.json.JsonSlurper().parseText(file('../shell-version.json').text).version
 android {
     namespace 'ru.eclipsru.mikapital'
     compileSdk 35
@@ -8,7 +9,7 @@ android {
         targetSdk 35
         versionCode Integer.parseInt(System.getenv('APP_VERSION_CODE') ?: '1')
         versionName System.getenv('APP_VERSION_NAME') ?: '2.1.0'
-        buildConfigField 'int', 'SHELL_VERSION', '1'
+        buildConfigField 'int', 'SHELL_VERSION', String.valueOf(androidShellVersion)
     }
     signingConfigs {
         release {
