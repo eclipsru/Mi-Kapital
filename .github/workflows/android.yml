@@ -32,10 +32,28 @@ jobs:
       - run: npm ci
         env: { ELECTRON_SKIP_BINARY_DOWNLOAD: '1' }
       - run: npm test
+      - name: Resolve the same version as the Windows release for this commit
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"; VERSION="${VERSION#v}"
+          else
+            VERSION=""
+            for i in $(seq 1 24); do
+              RUN_NUMBER="$(gh api "repos/${{ github.repository }}/actions/workflows/windows.yml/runs?head_sha=${{ github.sha }}&per_page=1" --jq '.workflow_runs[0].run_number // empty')"
+              if [[ -n "$RUN_NUMBER" ]]; then VERSION="2.0.$RUN_NUMBER"; break; fi
+              sleep 5
+            done
+            if [[ -z "$VERSION" ]]; then
+              echo "::error title=Android version alignment::No Windows workflow run found for this commit; refusing to publish a mismatched APK version."
+              exit 1
+            fi
+          fi
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: Build and package web assets
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "release" ]]; then VERSION="${{ github.event.release.tag_name }}"; VERSION="${VERSION#v}"; else VERSION="2.0.${{ github.run_number }}"; fi
+          VERSION="$RELEASE_VERSION"
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           npm run build
           node scripts/build-android-assets.mjs
