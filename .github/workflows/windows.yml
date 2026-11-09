@@ -37,6 +37,10 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       APP_VERSION: 2.0.${{ github.run_number }}
+      # GitHub's binary CDN intermittently returns 504 for Electron/NSIS toolsets.
+      # Mirrors only change the transport; @electron/get and electron-builder still verify SHA-256/SHA-512 checksums.
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
