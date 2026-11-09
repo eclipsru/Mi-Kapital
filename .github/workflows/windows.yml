@@ -52,15 +52,25 @@ jobs:
           }
           npm version $env:APP_VERSION --no-git-tag-version
           $env:RELEASE_TAG="v$env:APP_VERSION"
-          cmd /c "npm run desktop:build > candidate-build.log 2>&1"
-          if ($LASTEXITCODE) {
+          $buildExit=1
+          for($attempt=1;$attempt -le 2;$attempt++){
+            cmd /c "npm run desktop:build > candidate-build.log 2>&1"
+            $buildExit=$LASTEXITCODE
+            if($buildExit -eq 0){break}
+            Get-Content candidate-build.log -Tail 20 -ErrorAction SilentlyContinue | Write-Output
+            if($attempt -lt 2){
+              Write-Output "::warning title=Desktop build retry::Attempt $attempt failed; retrying after a short pause (electron-builder downloads can return transient 5xx/EOF)."
+              Start-Sleep -Seconds 15
+            }
+          }
+          if ($buildExit) {
             $tail=@(Get-Content candidate-build.log -Tail 40 -ErrorAction SilentlyContinue)
             $tail | Write-Output
             $detail=($tail | Select-Object -Last 25 | Out-String)
             if (!$detail.Trim()) { $detail='candidate-build.log is missing or empty' }
             $detail=$detail.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
             Write-Output "::error title=Desktop build failed::$detail"
-            exit $LASTEXITCODE
+            exit $buildExit
           }
           node scripts/prepare-release.mjs
           if ($LASTEXITCODE) { Write-Output "::error title=Release preparation::prepare-release exited $LASTEXITCODE"; exit $LASTEXITCODE }
