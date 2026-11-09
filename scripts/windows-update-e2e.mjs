@@ -2,13 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFileSync, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 const mode=process.argv[2];
 if(!['files','native'].includes(mode))throw new Error('Usage: windows-update-e2e.mjs files|native');
 const release=path.resolve('release');const manifest=JSON.parse(fs.readFileSync(path.join(release,'update-manifest.json'),'utf8'));
 const exe=process.env.INSTALLED_EXE||'C:\\MiKapitalTest\\Mi-Kapital.exe';
-if(!fs.existsSync(exe))throw new Error(`Installed app not found: ${exe}`);
+let installation=null;
 const requests=[];
 const server=http.createServer((req,res)=>{
   const name=decodeURIComponent(new URL(req.url,'http://localhost').pathname).slice(1);requests.push({name,range:req.headers.range||null});
@@ -24,6 +24,16 @@ const recordProcess=data=>{for(const line of data.toString().split(/\r?\n/).filt
 const wait=async(fn,timeout=120000)=>{const end=Date.now()+timeout;let last;while(Date.now()<end){try{const value=await fn();if(value)return value;}catch(e){last=e;}await new Promise(r=>setTimeout(r,350));}throw new Error(`Timeout. ${last?.message||''}`);};
 async function launch(){try{execFileSync('taskkill',['/F','/IM','Mi-Kapital.exe'],{stdio:'ignore'});}catch{}child=spawn(exe,['--remote-debugging-port=9333'],{env:{...process.env,MIKAPITAL_TEST_SERVER:`http://127.0.0.1:${port}`,MIKAPITAL_TEST_NO_AUTO:'1',ELECTRON_ENABLE_LOGGING:'1'},stdio:['ignore','pipe','pipe']});child.stdout.on('data',recordProcess);child.stderr.on('data',recordProcess);await wait(async()=>{const r=await fetch('http://127.0.0.1:9333/json/version');return r.ok;});browser=await chromium.connectOverCDP(`http://127.0.0.1:9333`);const page=await wait(async()=>browser.contexts()[0]?.pages().find(p=>p.url().startsWith('app://')));currentPage=page;page.on('console',msg=>consoleLines.push(`${msg.type()}: ${msg.text()}`));page.on('pageerror',error=>consoleLines.push(`pageerror: ${error.message}`));await page.waitForFunction(()=>!!window.desktop,null,{timeout:30000});return page;}
 try{
+  if(mode==='native'&&process.env.NATIVE_BASELINE_INSTALLER){
+    try{execFileSync('taskkill',['/F','/IM','Mi-Kapital.exe'],{stdio:'ignore'});}catch{}
+    await new Promise(r=>setTimeout(r,2000));
+    const installer=path.resolve(process.env.NATIVE_BASELINE_INSTALLER);
+    const result=spawnSync(installer,['/S','/currentuser','/D=C:\\MiKapitalTest'],{timeout:120000,windowsHide:true,encoding:'utf8'});
+    installation={status:result.status,signal:result.signal,error:result.error?.message,stdout:result.stdout,stderr:result.stderr,exeExists:fs.existsSync(exe)};
+    console.log('Native baseline installation:',JSON.stringify(installation));
+    if(result.status!==0||result.error)throw new Error(`Native baseline install failed: ${JSON.stringify(installation)}`);
+  }
+  if(!fs.existsSync(exe))throw new Error(`Installed app not found: ${exe}`);
   let page=await launch();const before=await page.evaluate(()=>window.desktop.info());console.log('Installed before:',before);
   if(before.version===manifest.version)throw new Error('E2E requires an older installed build');
   await page.evaluate(()=>window.desktop.saveData({schemaVersion:1,accounts:[{id:'e2e-account',name:'Сохранить при обновлении',kind:'cash',openingKopecks:123456,createdAt:new Date().toISOString()}],incomes:[],debts:[],movements:[],plan:{income:0,expenses:0,debtPayment:0,months:12,goal:0},updatedAt:new Date().toISOString()}));
@@ -50,7 +60,7 @@ try{
   try{currentState=await currentPage?.evaluate(()=>window.desktop?.info());}catch{}
   try{markup=(await currentPage?.evaluate(()=>document.body.innerText))?.slice(0,3000)||'';}catch{}
   try{await currentPage?.screenshot({path:path.join(release,`windows-${mode}-failure.png`)});}catch{}
-  const report={ok:false,mode,error:error.stack||String(error),url:currentPage?.url(),currentState,requests,console:consoleLines.slice(-40).map(line=>line.slice(0,600)),process:processLines.slice(-35),markup};
+  const report={ok:false,mode,installation,error:error.stack||String(error),url:currentPage?.url(),currentState,requests,console:consoleLines.slice(-40).map(line=>line.slice(0,600)),process:processLines.slice(-35).map(line=>line.slice(0,600)),markup};
   fs.writeFileSync(path.join(release,`windows-${mode}-e2e.json`),JSON.stringify(report,null,2));
   console.error('E2E diagnostic:',JSON.stringify(report));throw error;
 }finally{if(browser)await browser.close().catch(()=>{});if(child&&!child.killed)child.kill();server.close();}

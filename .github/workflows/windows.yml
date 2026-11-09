@@ -97,28 +97,11 @@ jobs:
       - name: Test real NSIS differential update and restart
         shell: pwsh
         run: |
-          Get-Process Mi-Kapital -ErrorAction SilentlyContinue | Stop-Process -Force
-          Start-Sleep -Seconds 2
-          $p=Start-Process -FilePath (Resolve-Path baseline-native.exe) -ArgumentList '/S','/currentuser','/D=C:\MiKapitalTest' -Wait -PassThru
-          $installCode=$p.ExitCode
-          Write-Output "::notice title=Native baseline exit::$installCode"
-          if ($installCode -ne 0) {
-            $found=@(Get-ChildItem C:\MiKapitalTest -Recurse -Filter Mi-Kapital.exe -ErrorAction SilentlyContinue | ForEach-Object FullName)
-            $diag=(ConvertTo-Json @{exit=$installCode;found=$found} -Compress).Replace('%','%25')
-            Write-Output "::error title=Native baseline install::$diag"
-            exit 1
-          }
-          if (!(Test-Path C:\MiKapitalTest\Mi-Kapital.exe)) {
-            $found=@(Get-ChildItem C:\MiKapitalTest -Recurse -Filter Mi-Kapital.exe -ErrorAction SilentlyContinue | ForEach-Object FullName)
-            $reg=Get-ItemProperty 'HKCU:\Software\ru.eclipsru.mikapital' -ErrorAction SilentlyContinue
-            $diag=ConvertTo-Json @{expected='C:\MiKapitalTest\Mi-Kapital.exe';found=$found;registry=$reg.InstallLocation} -Compress
-            Write-Output "::error title=Native baseline path::$diag"
-            exit 1
-          }
           Remove-Item release -Recurse -Force
           Copy-Item candidate-release release -Recurse
           Copy-Item baseline-native.exe.blockmap release/Mi-Kapital-Setup-0.0.1.exe.blockmap
           $env:ELECTRON_ENABLE_LOGGING="0"
+          $env:NATIVE_BASELINE_INSTALLER=(Resolve-Path baseline-native.exe).Path
           cmd /c "node scripts/windows-update-e2e.mjs native > native-e2e.log 2>&1"
           $testExit=$LASTEXITCODE
           Get-Content native-e2e.log -Tail 45
