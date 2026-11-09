@@ -34,7 +34,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
       onSave({ ...data, accounts: editing ? data.accounts.map(a=>a.id===account.id?account:a) : [...data.accounts,account] }, editing ? 'Счёт обновлён' : 'Счёт добавлен');
     } else if (request.type === 'income') {
       if (!incomeCategoryOptions(request.item?.category).includes(category)) return setError('Выберите направление дохода.');
-      const income: Income = { ...common, id:request.item?.id ?? uid(), category };
+      const income: Income = { ...common, id:request.item?.id ?? uid(), category, ...(category === 'Шабашки' && request.item?.work ? { work:request.item.work } : {}) };
       onSave({ ...data, incomes:editing ? data.incomes.map(i=>i.id===income.id?income:i) : [...data.incomes,income] }, editing ? 'Доход обновлён. Остаток счёта пересчитан.' : 'Доход добавлен и зачислен на выбранный счёт');
     } else if (request.type === 'movement') {
       const movement: Movement = { ...common, id:request.item?.id ?? uid(), kind:movementKind };

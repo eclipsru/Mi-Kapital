@@ -27,6 +27,8 @@ async function assertLayout(label) {
   const problem = await page.evaluate(() => {
     const directions = document.querySelector('.income-directions');
     if (directions && getComputedStyle(directions).display !== 'grid') return 'income direction cards lost their base layout';
+    const summary = document.querySelector('.jobs-summary');
+    if (summary && getComputedStyle(summary).display !== 'grid') return 'odd-job summary lost its base layout';
     return document.documentElement.scrollWidth > window.innerWidth || [...document.querySelectorAll('.income-direction')].some(el => el.scrollWidth > el.clientWidth + 1) ? 'horizontal overflow' : '';
   });
   if (problem) throw new Error(`${problem}: ${label}`);
@@ -54,12 +56,16 @@ try {
       incomes: [
         income('r1', 'Продажа инструмента', 'Перепродажи', 8500000, 0, 'a1'),
         income('r2', 'Продажа комплектующих', 'Перепродажи', 1250000, 0, 'a2'),
-        income('j1', 'Ремонт автомобиля', 'Шабашки', 2400000, 0, 'a2'),
-        income('j2', 'Сборка мебели', 'Шабашки', 950000, 0, 'a2'),
+        { ...income('j1', 'Ремонт автомобиля', 'Шабашки', 2400000, 0, 'a2'), work: { kind: 'Ремонт', values: { object: 'Автомобиль', scope: 'Диагностика и замена масла' } } },
+        { ...income('j2', 'Сборка мебели', 'Шабашки', 950000, 0, 'a2'), work: { kind: 'Сборка мебели', values: { object: 'Шкаф', quantity: '1' } } },
         income('r3', 'Продажа велосипеда', 'Перепродажи', 8000000, 1, 'a1'),
         income('j3', 'Работа на выходных', 'Шабашки', 1800000, 2, 'a2'),
         income('r4', 'Продажа монитора', 'Перепродажи', 7800000, 3, 'a1'),
         income('legacy', 'Подарок на день рождения', 'Подарок', 3200000, 4, 'a2'),
+      ],
+      workPlans: [
+        { id: 'wp1', kind: 'Электрика', title: 'Щиток в гараже', date: month[0], expectedKopecks: 1500000, note: 'Купить автомат заранее', createdAt: new Date().toISOString() },
+        { id: 'wp2', kind: 'Отделка', title: 'Покрасить коридор', date: '', expectedKopecks: 900000, note: '', createdAt: new Date().toISOString() },
       ],
       debts: [
         { id: 'd1', title: 'Ремонт мастерской', counterparty: 'Александр', direction: 'i_owe', principalKopecks: 6000000, date: month[2], dueDate: '', note: 'Беспроцентный заём', initialAccountId: null, payments: [{ id: 'p1', amountKopecks: 1500000, date: month[0], accountId: 'a1', note: '' }] },
@@ -78,11 +84,26 @@ try {
   await page.evaluate(() => document.fonts.ready);
   await shot('02-capital');
   await navigate('income', 'Доходы');
-  await page.getByRole('tab', { name: /^Перепродажи/ }).waitFor();
+  await page.getByRole('button', { name: /^Перепродажи/ }).waitFor();
   await shot('03-income');
-  await page.getByRole('tab', { name: /^Шабашки/ }).click();
+  await page.getByRole('button', { name: /^Шабашки/ }).click();
+  await page.getByRole('heading', { name: 'Шабашки', exact: true }).waitFor();
   await page.waitForTimeout(220);
-  await shot('03-income-jobs');
+  await shot('03-odd-jobs');
+  await page.getByRole('tab', { name: 'Запланировать', exact: true }).click();
+  await page.waitForTimeout(220);
+  await shot('03-odd-jobs-plan');
+  await page.getByRole('button', { name: 'Запланировать работу', exact: true }).click();
+  await page.getByRole('dialog').waitFor();
+  await shot('09-odd-job-plan-form');
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await page.getByRole('tab', { name: 'Выполнено', exact: true }).click();
+  await page.getByRole('button', { name: 'Добавить выполненную', exact: true }).click();
+  await page.getByRole('dialog').waitFor();
+  await shot('09-odd-job-form');
+  await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+  await page.getByRole('button', { name: 'К доходам', exact: true }).click();
+  await page.getByRole('heading', { name: 'Доходы', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Добавить доход', exact: true }).click();
   await page.getByRole('dialog').waitFor();
   await shot('08-income-form');
@@ -100,12 +121,14 @@ try {
     await page.setViewportSize({ width, height: 900 });
     await navigate('capital', 'Мой капитал'); await assertLayout(`capital ${width}px`); await shot(`capital-${width}`);
     await navigate('income', 'Доходы'); await assertLayout(`resale ${width}px`); await shot(`income-${width}`);
-    await page.getByRole('tab', { name: /^Шабашки/ }).click(); await page.waitForTimeout(220); await assertLayout(`odd jobs ${width}px`); await shot(`income-jobs-${width}`);
+    await page.getByRole('button', { name: /^Шабашки/ }).click(); await page.getByRole('heading', { name: 'Шабашки', exact: true }).waitFor(); await page.waitForTimeout(220); await assertLayout(`odd jobs ${width}px`); await shot(`odd-jobs-${width}`);
+    await page.getByRole('tab', { name: 'Запланировать', exact: true }).click(); await page.waitForTimeout(220); await assertLayout(`odd jobs plan ${width}px`); await shot(`odd-jobs-plan-${width}`);
+    await navigate('income', 'Доходы');
     await page.getByRole('button', { name: 'Показать всю историю', exact: true }).click(); await page.waitForTimeout(220); await assertLayout(`legacy history ${width}px`); await shot(`income-history-${width}`);
-    await page.getByRole('button', { name: 'Вернуться к направлениям', exact: true }).click();
+    await page.getByRole('button', { name: 'Вернуться к перепродажам', exact: true }).click();
   }
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('Visual checks passed: 4 sections, both income directions, legacy history, income/account forms, update dialog, 1440/1280/1024/768/390 px. No browser errors or horizontal overflow.');
+  console.log('Visual checks passed: 4 sections, separate odd-jobs page with summary/done/plan forms, resale and legacy history, income/account forms, update dialog, 1440/1280/1024/768/390 px. No browser errors or horizontal overflow.');
 } finally {
   await browser.close();
 }
