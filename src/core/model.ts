@@ -38,7 +38,7 @@ export const productStatusLabels: Record<ProductStatus | 'sold', string> = { pre
 export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
 export const productStatus = (p: ResaleProduct): ProductStatus | 'sold' => p.sale ? 'sold' : p.status ?? 'preparing';
 // «Из кармана» входит в цену покупки, активы и прибыль, но не списывается ни с одного счёта.
-// Со счетов списывается только часть «Капитал»; при продаже вся цена покупки возвращается на выбранный счёт.
+// Со счетов списывается только часть «Капитал»; при продаже возвращается только цена покупки. Доли прибыли начисляются отдельно на карточках ролей.
 export const deductedFunding = (product: ResaleProduct) => product.funding.filter(f => f.source === 'capital');
 export const productCost = (product: ResaleProduct) => sum(product.funding.map(f => f.amountKopecks));
 export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
@@ -62,7 +62,7 @@ export function saleBreakdown(product: ResaleProduct) {
   const personalProfit = profit - investorKopecks;
   const earnedKopecks = shareKopecks(Math.max(0, personalProfit), PERSONAL_SHARE_BPS);
   // A loss reduces available money by the full loss, not merely by 15% of it.
-  const returnedKopecks = !product.sale ? 0 : profit < 0 ? revenue : cost + earnedKopecks;
+  const returnedKopecks = !product.sale ? 0 : profit < 0 ? revenue : cost;
   const remainderKopecks = Math.max(0, personalProfit) - earnedKopecks;
   return { cost, revenue, profit, investorKopecks, personalProfit, earnedKopecks, returnedKopecks, remainderKopecks };
 }
@@ -96,7 +96,7 @@ export function returnedPrincipal(product: ResaleProduct): number {
   return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
 }
 // Остаток капитала: денежные счета без полной выручки шабашек, но с 15% их чистой прибыли.
-// Покупки товаров уже уменьшают денежные счета, продажа возвращает тело покупки и 15% прибыли.
+// Покупки товаров уже уменьшают денежные счета, продажа возвращает только тело покупки; доли прибыли не увеличивают остаток.
 // Обычные расходы, корректировки и прежние поступления остаются в расчёте; долги не вычитаются повторно.
 export function capitalRemainder(data: AppData): number {
   const liquidIds = new Set(liquidAccounts(data).map(a => a.id));
@@ -250,7 +250,7 @@ export function ledger(data: AppData): LedgerItem[] {
   for (const product of products(data)) {
     const cost = productCost(product);
     items.push({ id: `purchase-${product.id}`, type: 'product-purchase', title: `Покупка: ${product.kind}`, subtitle: product.funding.length ? product.funding.map(f => f.source === 'pocket' ? `${fundingLabels.pocket} · без списания` : `${fundingLabels.capital} · ${accountName(f.accountId)}`).join(' + ') : 'Бесплатно · без списания', date: product.purchaseDate, amount: cost, accountId: deductedFunding(product)[0]?.accountId ?? null, positive: false });
-    if (product.sale) items.push({ id: `sale-${product.id}`, type: 'product-sale', title: `Продажа: ${product.kind}`, subtitle: `Возврат покупки + распределение прибыли · ${accountName(product.sale.accountId)}`, date: product.sale.date, amount: saleBreakdown(product).returnedKopecks, accountId: product.sale.accountId, positive: true });
+    if (product.sale) items.push({ id: `sale-${product.id}`, type: 'product-sale', title: `Продажа: ${product.kind}`, subtitle: `Зачисление после продажи · ${accountName(product.sale.accountId)}`, date: product.sale.date, amount: saleBreakdown(product).returnedKopecks, accountId: product.sale.accountId, positive: true });
   }
   for (const m of data.movements) items.push({ id: m.id, type: m.kind, title: m.title, subtitle: `${m.kind === 'expense' ? 'Расход' : 'Корректировка'} · ${accountName(m.accountId)}`, date: m.date, amount: m.amountKopecks, accountId: m.accountId, positive: m.kind === 'adjustment' && m.amountKopecks >= 0 });
   for (const d of data.debts) {

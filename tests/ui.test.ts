@@ -39,9 +39,9 @@ describe('real React UI flows',()=>{
     await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.summary-stack')?.textContent).toContain(money(50));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(100000));
     await click('Долги');await click('Добавить долг');await input('Название','Заём');await input('Кому вы должны','Алексей');await input('Изначальная сумма, ₽','300');await input('Движение денег при создании','');await submitModal();await click('Мой капитал');expect(cashText()).toBe(money(70050));expect(container!.querySelector('.debt-strip')?.textContent).toContain(money(30000));
     await click('Доходы');await openResales();await click('Продать');await input('Цена продажи, ₽','1500');expect(container!.querySelector('.sale-preview')?.textContent).toContain(money(40000));await submitModal();expect(saved().products[0].sale.priceKopecks).toBe(150000);
-    await click('Мой капитал');expect(cashText()).toBe(money(76050));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(0));expect(roleCard('capital')).toContain(money(6000));
-    await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(56050));expect(roleCard('capital')).toContain(money(6000));
-    await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(56050));expect(container!.textContent).toContain('Погашение: Заём');
+    await click('Мой капитал');expect(cashText()).toBe(money(70050));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(0));expect(roleCard('capital')).toContain(money(6000));
+    await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(50050));expect(roleCard('capital')).toContain(money(6000));
+    await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(50050));expect(container!.textContent).toContain('Погашение: Заём');
   });
   it('opens both income directions as separate pages and counts net profit, not 15%',async()=>{
     const previous=`${lastMonths(2)[0]}-05`.slice(0,7);seedIncome();await mount();
@@ -67,7 +67,7 @@ describe('real React UI flows',()=>{
   it('validates capital funding and reverses sale edits, cancellation and product deletion',async()=>{
     localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash',openingKopecks:100000,createdAt:'2026-01-01'}],products:[product]}));window.location.hash='resales';await mount();
     await click('Вложения');await input('Сумма из капитала, ₽','0');await input('Сумма из кармана, ₽','0');expect(container!.querySelector('.purchase-total')?.textContent).toContain('Бесплатно');await submitModal();expect(saved().products[0].funding).toEqual([]);expect(totals(saved()).remainder).toBe(100000);await click('Вложения');await input('Сумма из капитала, ₽','600');await check('Из кармана');await input('Сумма из кармана, ₽','400');await submitModal();
-    await click('Продать');await input('Цена продажи, ₽','1500');await submitModal();expect(totals(saved()).onHand).toBe(146000);await clickTab(4);await click('Изменить продажу');await input('Цена продажи, ₽','2000');await submitModal();expect(totals(saved()).onHand).toBe(152000);expect(saved().incomes.length).toBe(0);
+    await click('Продать');await input('Цена продажи, ₽','1500');await submitModal();expect(totals(saved()).onHand).toBe(140000);await clickTab(4);await click('Изменить продажу');await input('Цена продажи, ₽','2000');await submitModal();expect(totals(saved()).onHand).toBe(140000);expect(saved().incomes.length).toBe(0);
     await click('Изменить продажу');await click('Отменить продажу');expect(saved().products[0].sale).toBeUndefined();expect(totals(saved()).onHand).toBe(40000);expect(totals(saved()).assets).toBe(100000);await clickTab(0);
     await click('Вложения');await click('Удалить');await click('Да, удалить');expect(saved().products.length).toBe(0);expect(totals(saved()).onHand).toBe(100000);expect(totals(saved()).assets).toBe(0);
   });
@@ -89,7 +89,7 @@ describe('real React UI flows',()=>{
   it('shows role cards 15/70/15 and the chainsaw example in the capital overview',async()=>{
     const createdAt=new Date().toISOString();
     localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Капитал',kind:'cash',openingKopecks:20000,createdAt,role:'capital'},{id:'h',name:'Карман',kind:'cash',openingKopecks:0,createdAt,role:'hand'},{id:'d',name:'Долги',kind:'cash',openingKopecks:0,createdAt,role:'debt'}],products:[{id:'saw',kind:'Бензопила',purchaseDate:today(),funding:[{source:'capital',accountId:'a',amountKopecks:20000}],description:'',photos:[],createdAt,sale:{priceKopecks:50000,date:today(),accountId:'a'}}],incomes:[{id:'job',title:'Шабашка',category:'Шабашки',amountKopecks:100000,date:today(),accountId:'h',note:''}]}));window.location.hash='capital';await mount();
-    expect(cashText()).toBe(money(39500));expect(roleCard('capital')).toContain(money(19500));expect(roleCard('hand')).toContain(money(91000));expect(roleCard('debt')).toContain(money(19500));
+    expect(cashText()).toBe(money(35000));expect(roleCard('capital')).toContain(money(19500));expect(roleCard('hand')).toContain(money(91000));expect(roleCard('debt')).toContain(money(19500));
   });
   it('orders resale tabs and filters by preparing/listed status',async()=>{
     const createdAt=new Date().toISOString();

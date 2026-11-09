@@ -19,7 +19,7 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
         <div className="balance-top"><span><Wallet size={18}/>Общий капитал</span><IconButton label={hidden ? 'Показать суммы' : 'Скрыть суммы'} onClick={() => setHidden(!hidden)}>{hidden ? <EyeOff size={18}/> : <Eye size={18}/>}</IconButton></div>
         <div className="balance-amount">{amount(t.totalCapital)}</div>
         <p>Активы + остаток − мои долги</p>
-        <div className="balance-bottom"><span><span className="status-dot green"/>Покупка переводит остаток в активы, продажа возвращает тело и 15% прибыли</span><ShieldCheck size={19}/></div>
+        <div className="balance-bottom"><span><span className="status-dot green"/>Покупка переводит остаток в активы; при продаже возвращается только цена покупки</span><ShieldCheck size={19}/></div>
         <div className="balance-art" aria-hidden="true"><div className="art-ring ring-one"/><div className="art-ring ring-two"/><div className="art-ring ring-three"/><div className="art-coin"><span>₽</span></div><div className="art-mini"><TrendingUp size={27}/></div></div>
       </section>
       <div className="summary-stack">

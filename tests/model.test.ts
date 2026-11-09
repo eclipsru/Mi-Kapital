@@ -75,10 +75,10 @@ describe('resale products and personal income',()=>{
     const pocketOnly={...product,funding:[{source:'pocket' as const,accountId:'',amountKopecks:400000}]};const pd={...emptyData(),accounts:[account],products:[pocketOnly]};
     expect(validateData(pd).products![0].funding[0].accountId).toBe('');expect(accountBalance(pd,'a')).toBe(100000);expect(productCost(pocketOnly)).toBe(400000);expect(accountReferenced(pd,'a')).toBe(false);
   });
-  it('deducts investor profit share before 15%, returns purchase cost plus earnings exactly once',()=>{
+  it('deducts investor share before profit allocation and returns only the purchase cost',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
-    expect(saleBreakdown(sold)).toMatchObject({profit:500000,investorKopecks:100000,personalProfit:400000,earnedKopecks:60000,returnedKopecks:1060000,remainderKopecks:340000});
-    expect(accountBalance(d,'a')).toBe(560000);expect(totals(d).onHand).toBe(560000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(400000);expect(resaleEarnings(d, today().slice(0,7))).toBe(400000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
+    expect(saleBreakdown(sold)).toMatchObject({profit:500000,investorKopecks:100000,personalProfit:400000,earnedKopecks:60000,returnedKopecks:1000000,remainderKopecks:340000});
+    expect(accountBalance(d,'a')).toBe(500000);expect(totals(d).onHand).toBe(500000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(400000);expect(resaleEarnings(d, today().slice(0,7))).toBe(400000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
   });
   it('does not invent earnings at break-even and applies a full loss to cash',()=>{
     const even={...product,sale:{priceKopecks:1000000,date:today(),accountId:'a'}};expect(saleBreakdown(even).earnedKopecks).toBe(0);expect(totals({...emptyData(),accounts:[account],products:[even]}).onHand).toBe(500000);
@@ -92,7 +92,7 @@ describe('resale products and personal income',()=>{
   it('reverses edits, sale cancellation and deletion without duplicate movements',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
     const {sale,...unsold}=sold;expect(totals({...d,products:[unsold]}).onHand).toBe(-500000);expect(inventoryValue({...d,products:[unsold]})).toBe(1000000);expect(totals({...d,products:[]}).onHand).toBe(100000);
-    expect(totals({...d,products:[{...sold,sale:{...sold.sale!,priceKopecks:1600000}}]}).onHand).toBe(572000);
+    expect(totals({...d,products:[{...sold,sale:{...sold.sale!,priceKopecks:1600000}}]}).onHand).toBe(500000);
   });
   it('roundtrips products, photos, voice and investor in backups and accepts old backups without products',()=>{
     const rich={...product,photos:['data:image/png;base64,aGVsbG8='],voice:{mimeType:'audio/webm',dataUrl:'data:audio/webm;base64,aGVsbG8=',durationSeconds:2}};const d={...emptyData(),accounts:[account],products:[rich]};expect(parseBackup(serializeBackup(d))).toEqual(d);
@@ -118,7 +118,7 @@ describe('net-profit allocation and capital example',()=>{
     expect(capitalRemainder(bought)).toBe(0);expect(totals(bought).assets).toBe(20000);expect(totals(bought).totalCapital).toBe(20000);
     const sold={...chainsaw,sale:{priceKopecks:50000,date:today(),accountId:'a'}};
     const d={...emptyData(),accounts:[start],products:[sold],incomes:[job]};
-    expect(totals(d).remainder).toBe(39500);expect(totals(d).totalCapital).toBe(39500);expect(totals(d).assets).toBe(0);
+    expect(totals(d).remainder).toBe(35000);expect(totals(d).totalCapital).toBe(35000);expect(totals(d).assets).toBe(0);
     expect(allocations(d)).toEqual({capital:19500,debt:19500,hand:91000,total:130000});
     expect(resaleInventoryValue({...bought,products:[{...chainsaw,investor:{name:'Игорь',amountKopecks:5000,percentBasisPoints:0,terms:''}}]})).toBe(25000);
   });
@@ -175,6 +175,6 @@ describe('net capital and free purchases',()=>{
     const free:ResaleProduct={id:'free',kind:'Подарок',purchaseDate:'2026-11-01',funding:[],description:'',photos:[],createdAt:'2026-11-01'};const data={...emptyData(),accounts:[account],products:[free]};
     expect(validateData(data).products![0].funding).toEqual([]);expect(productCost(free)).toBe(0);expect(totals(data).assets).toBe(0);expect(accountBalance(data,'a')).toBe(100000);expect(ledger(data).find(i=>i.type==='product-purchase')?.subtitle).toContain('Бесплатно');
     const funded={...free,funding:[{source:'pocket' as const,accountId:'',amountKopecks:100}]};expect(productCost(funded)).toBe(100);expect(accountBalance(data,'a')).toBe(100000);
-    const sold={...free,sale:{priceKopecks:10000,date:'2026-11-02',accountId:'a'}};expect(saleBreakdown(sold).returnedKopecks).toBe(1500);expect(totals({...data,products:[sold]}).incomeTotal).toBe(10000);
+    const sold={...free,sale:{priceKopecks:10000,date:'2026-11-02',accountId:'a'}};expect(saleBreakdown(sold).returnedKopecks).toBe(0);expect(totals({...data,products:[sold]}).incomeTotal).toBe(10000);
   });
 });
