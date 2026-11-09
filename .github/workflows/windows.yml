@@ -52,12 +52,17 @@ jobs:
           }
           npm version $env:APP_VERSION --no-git-tag-version
           $env:RELEASE_TAG="v$env:APP_VERSION"
-          npm run desktop:build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmd /c "npm run desktop:build > candidate-build.log 2>&1"
+          if ($LASTEXITCODE) {
+            Get-Content candidate-build.log -Tail 40
+            $detail=(Get-Content candidate-build.log -Tail 25 -Raw).Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Desktop build failed::$detail"
+            exit $LASTEXITCODE
+          }
           node scripts/prepare-release.mjs
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE) { Write-Output "::error title=Release preparation::prepare-release exited $LASTEXITCODE"; exit $LASTEXITCODE }
           npm run release:verify
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE) { Write-Output "::error title=Release verification::verify-release exited $LASTEXITCODE"; exit $LASTEXITCODE }
           Copy-Item release -Destination candidate-release -Recurse
           Copy-Item dist -Destination candidate-dist -Recurse
           Copy-Item electron/main.cjs -Destination candidate-main.cjs
