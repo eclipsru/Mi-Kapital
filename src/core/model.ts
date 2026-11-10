@@ -233,8 +233,10 @@ export function totals(data: AppData) {
   const assets = inventoryValue(data);
   const remainder = capitalRemainder(data);
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
-  // Net capital counts the outstanding liability once. Cash accounting stays unchanged.
-  const totalCapital = assets + remainder - payable;
+  // Debts never reduce total capital. The 15% capital share of each net profit is
+  // already inside remainder: a sale returns cost + 15% to the account, and odd-job
+  // receipts are replaced by their 15% capital share in capitalRemainder().
+  const totalCapital = assets + remainder;
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());
   const incomeMonth = earnedIncome(data, month);
