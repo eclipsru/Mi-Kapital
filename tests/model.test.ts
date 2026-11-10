@@ -165,20 +165,21 @@ describe('validated backups',()=>{
 });
 
 describe('net capital and free purchases',()=>{
-  it('never subtracts outstanding borrowing from total capital and keeps role accruals and remainder unchanged',()=>{
+  it('ignores debts completely in total capital: neither added nor repaid debts touch it',()=>{
     const borrowed:Debt={...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]};
     const data={...emptyData(),accounts:[account],debts:[borrowed,{...debt,id:'receivable',direction:'owed_to_me' as const}],incomes:[{...income,category:'Шабашки'}]};
-    const t=totals(data);expect(t.remainder).toBe(127500);expect(t.payable).toBe(20000);expect(t.totalCapital).toBe(127500);expect(allocations(data)).toEqual({capital:7500,debt:7500,hand:35000,total:50000});
+    const t=totals(data);expect(t.remainder).toBe(127500);expect(t.payable).toBe(20000);expect(t.totalCapital).toBe(107500);expect(allocations(data)).toEqual({capital:7500,debt:7500,hand:35000,total:50000});
     expect(totals({...data,debts:[{...borrowed,payments:[{...borrowed.payments[0],amountKopecks:30000}]},data.debts[1]]}).totalCapital).toBe(107500);
+    expect(totals({...data,debts:[]}).totalCapital).toBe(t.totalCapital);
   });
   it('adds 15% of each resale net profit to total capital without touching it for debts',()=>{
     const laptop:ResaleProduct={id:'nb',kind:'Ноутбук',purchaseDate:'2026-11-01',funding:[{source:'capital',accountId:'a',amountKopecks:100000}],description:'',photos:[],createdAt:'2026-11-01'};
     const withDebt={...emptyData(),accounts:[account],products:[laptop],debts:[{...debt,initialAccountId:'a'}]};
-    expect(totals(withDebt).assets).toBe(100000);expect(totals(withDebt).totalCapital).toBe(totals(withDebt).remainder+100000);
+    expect(totals(withDebt).assets).toBe(100000);expect(totals(withDebt).totalCapital).toBe(100000);
     const sold={...laptop,sale:{priceKopecks:200000,date:'2026-11-09',accountId:'a'}};
     const after={...withDebt,products:[sold]};
     expect(saleBreakdown(sold).returnedKopecks).toBe(115000);
-    expect(totals(after).assets).toBe(0);expect(totals(after).remainder).toBe(145000);expect(totals(after).totalCapital).toBe(145000);
+    expect(totals(after).assets).toBe(0);expect(totals(after).remainder).toBe(145000);expect(totals(after).totalCapital).toBe(115000);
     expect(totals(after).totalCapital-totals(withDebt).totalCapital).toBe(15000);
   });
   it('accepts a zero-cost product without funding, changes its label when funded, and sells it normally',()=>{

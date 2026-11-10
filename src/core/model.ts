@@ -98,9 +98,9 @@ export function returnedPrincipal(product: ResaleProduct): number {
 // Остаток капитала: денежные счета без полной выручки шабашек, но с 15% их чистой прибыли.
 // Покупки товаров уже уменьшают денежные счета, продажа возвращает тело покупки и 15% прибыли.
 // Обычные расходы, корректировки и прежние поступления остаются в расчёте; долги не вычитаются повторно.
-export function capitalRemainder(data: AppData): number {
+export function capitalRemainder(data: AppData, ignoreDebts = false): number {
   const liquidIds = new Set(liquidAccounts(data).map(a => a.id));
-  const liquid = sum(liquidAccounts(data).map(a => accountBalance(data, a.id)));
+  const liquid = sum(liquidAccounts(data).map(a => accountBalance(data, a.id, ignoreDebts)));
   const jobs = oddJobIncomes(data).filter(i => liquidIds.has(i.accountId));
   const jobReceipts = sum(jobs.map(i => i.amountKopecks));
   const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
@@ -213,7 +213,7 @@ export function lastMonths(count: number, end = today()): string[] {
 export const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 export const debtPaid = (debt: Debt) => sum(debt.payments.map(p => p.amountKopecks));
 export const debtRemaining = (debt: Debt) => debt.principalKopecks - debtPaid(debt);
-export function accountBalance(data: AppData, accountId: string): number {
+export function accountBalance(data: AppData, accountId: string, ignoreDebts = false): number {
   const account = data.accounts.find(a => a.id === accountId);
   if (!account) return 0;
   let balance = account.openingKopecks;
@@ -223,7 +223,7 @@ export function accountBalance(data: AppData, accountId: string): number {
     for (const funding of deductedFunding(product)) if (funding.accountId === accountId) balance -= funding.amountKopecks;
     if (product.sale?.accountId === accountId) balance += saleBreakdown(product).returnedKopecks;
   }
-  for (const debt of data.debts) {
+  if (!ignoreDebts) for (const debt of data.debts) {
     if (debt.initialAccountId === accountId) balance += debt.direction === 'i_owe' ? debt.principalKopecks : -debt.principalKopecks;
     for (const payment of debt.payments) if (payment.accountId === accountId) balance += debt.direction === 'i_owe' ? -payment.amountKopecks : payment.amountKopecks;
   }
@@ -233,10 +233,12 @@ export function totals(data: AppData) {
   const assets = inventoryValue(data);
   const remainder = capitalRemainder(data);
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
-  // Debts never reduce total capital. The 15% capital share of each net profit is
-  // already inside remainder: a sale returns cost + 15% to the account, and odd-job
-  // receipts are replaced by their 15% capital share in capitalRemainder().
-  const totalCapital = assets + remainder;
+  // Total capital ignores debts completely: neither new, old, added nor repaid debts
+  // touch it. Debt cash flows (initial principal and payments) are stripped out, so
+  // borrowing or repaying never changes total capital. The 15% capital share of each
+  // net profit is already inside the debt-free remainder: a sale returns cost + 15%
+  // to the account, and odd-job receipts are replaced by their 15% share.
+  const totalCapital = assets + capitalRemainder(data, true);
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());
   const incomeMonth = earnedIncome(data, month);
