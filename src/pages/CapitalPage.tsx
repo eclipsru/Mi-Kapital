@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowRight, ArrowUpRight, CircleHelp, Eye, EyeOff, Layers3, Plus, ShieldCheck, Sparkles, TrendingUp, Wallet } from 'lucide-react';
-import { accountBalance, accountRoleOrder, accountRoles, allocations, inventoryProducts, ledger, money, monthlySeries, roleAccount, totals, type AppData, type LedgerItem } from '../core/model';
+import { accountBalance, accountRoleOrder, accountRoles, allocations, capitalRemainder, inventoryProducts, ledger, money, monthlySeries, roleAccount, totals, type AppData, type LedgerItem } from '../core/model';
 import { AccountIcon, AddButton, Badge, Bars, Button, Empty, IconButton, LedgerTable, Modal, PageHead, SectionHead } from '../components/ui';
 import type { EntryRequest } from '../components/EntryModal';
 
@@ -23,7 +23,7 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
         <div className="balance-art" aria-hidden="true"><div className="art-ring ring-one"/><div className="art-ring ring-two"/><div className="art-ring ring-three"/><div className="art-coin"><span>₽</span></div><div className="art-mini"><TrendingUp size={27}/></div></div>
       </section>
       <div className="summary-stack">
-        <section className="summary-card"><span className="metric-icon green"><ArrowUpRight size={21}/></span><div><span className="metric-label">Остаток</span><strong>{amount(t.remainder)}</strong><small>Капитал вне товаров</small></div><button className="metric-link" aria-label="Перейти к доходам" onClick={() => { window.location.hash = 'income'; }}><ArrowRight size={18}/></button></section>
+        <section className="summary-card"><span className="metric-icon green"><ArrowUpRight size={21}/></span><div><span className="metric-label">Остаток</span><strong>{amount(capitalRemainder(data, true))}</strong><small>Капитал вне товаров · без долгов</small></div><button className="metric-link" aria-label="Перейти к доходам" onClick={() => { window.location.hash = 'income'; }}><ArrowRight size={18}/></button></section>
         <section className="summary-card inventory-summary" onClick={onOpenResales} role="link" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenResales(); } }}><span className="metric-icon orange"><Layers3 size={21}/></span><div><span className="metric-label">Активы</span><strong>{amount(t.assets)}</strong><small>{inventoryProducts(data).length} товаров · свои вложения без инвестора</small></div></section>
       </div>
     </div>
@@ -35,7 +35,6 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
         return <button className={`account-card role-account-card role-${role}`} key={role} onClick={() => account ? onEdit({ type: 'account', item: account }) : setAssignRole(role)}>
           <div className="account-card-top"><span className={`account-icon kind-${account?.kind ?? 'bank'}`}>{account ? <AccountIcon kind={account.kind}/> : <Wallet size={21}/>}</span><ArrowUpRight size={17}/></div>
           <span className="metric-label">{accountRoles[role]}</span>
-          {role === 'hand' && <small className="borrowed-on-hand">Взял в долг: {amount(t.payable)}</small>}
           <h3>{account?.name ?? 'Счёт не назначен'}</h3>
           <strong>{amount(split[role])}</strong>
           {account && (role === 'capital' || role === 'hand') && <small className="role-balance-small">На счёте: {amount(accountBalance(data, account.id))}</small>}

@@ -43,6 +43,13 @@ describe('real React UI flows',()=>{
     await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(86050));expect(roleCard('capital')).toContain(money(6000));
     await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(86050));expect(container!.textContent).toContain('Погашение: Заём');
   });
+  it('shows a debt-free remainder and no debt text in the hand role card',async()=>{
+    const data={...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash' as const,openingKopecks:0,createdAt:'2026-01-01'}],debts:[{id:'d',title:'Авто',counterparty:'Алексей',direction:'i_owe' as const,principalKopecks:38150000,date:'2026-11-01',dueDate:'',note:'',initialAccountId:null,payments:[{id:'p',amountKopecks:23000000,date:'2026-11-03',accountId:'a',note:''}]}]};
+    localStorage.setItem('mi-kapital.v2.local',JSON.stringify(data));await mount();
+    expect(totals(data).remainder).toBe(-23000000);
+    expect(container!.querySelector('.summary-stack .summary-card strong')?.textContent).toBe(money(0));
+    expect(cashText()).toBe(money(0));expect(roleCard('hand')).not.toContain('Взял в долг');
+  });
   it('opens both income directions as separate pages and counts net profit, not 15%',async()=>{
     const previous=`${lastMonths(2)[0]}-05`.slice(0,7);seedIncome();await mount();
     expect(directions().map(d=>d.querySelector('.direction-copy strong')?.textContent)).toEqual(['Перепродажи','Шабашки']);expect(totalText()).toBe(money(75025));expect(ledgerText()).toContain('Ремонт на выходных');expect(ledgerText()).not.toContain('Продажа инструмента');

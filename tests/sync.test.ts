@@ -9,7 +9,7 @@ import path from 'node:path';
 import http from 'node:http';
 import App from '../src/App';
 import { emptyData, totals, type AppData } from '../src/core/model';
-import { defaultSyncConfig, mergeData, stampChanges } from '../src/core/sync';
+import { defaultSyncConfig, mergeData, sameData, stampChanges } from '../src/core/sync';
 const require=createRequire(import.meta.url);
 const {createStore}=require('../electron/store.cjs');
 const {createSyncServer}=require('../electron/sync-server.cjs');
@@ -29,6 +29,19 @@ describe('record-level sync',()=>{
     expect(mergeData(pc,deleted,true).accounts.map(a=>a.id)).toEqual(['a']);
     expect(mergeData(deleted,pc,true).accounts.map(a=>a.id)).toEqual(['a']);
   });
+  it('preserves clocks and deletion markers even when the visible records match',()=>{
+    const base=emptyData();const added=stampChanges(base,{...base,accounts:[account('gone',100)]},'phone',1000);
+    const deleted=stampChanges(added,base,'phone',2000);
+    expect(sameData(base,deleted)).toBe(false);
+    const merged=mergeData(base,deleted,true);
+    expect(merged.accounts).toEqual([]);expect(merged.sync?.deleted['accounts/gone']).toBeTruthy();
+    expect(sameData(merged,{...merged,sync:{...merged.sync!,device:'different'}})).toBe(true);
+  });
+  it('keeps the first pairing token after restarting the PC server',async()=>{
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mi-kapital-token-'));cleanup.push(()=>fs.rmSync(dir,{recursive:true,force:true}));
+    const store=createStore(dir);const first=createSyncServer(dir,store,()=>{});const token=first.config().lanToken;first.close();
+    const restarted=createSyncServer(dir,store,()=>{});expect(restarted.config().lanToken).toBe(token);restarted.close();
+  });
   it('uses the PC for legacy equal-clock conflicts instead of choosing stale phone amounts lexicographically',()=>{
     const phone={...emptyData(),accounts:[account('a',900)]};const pc={...emptyData(),accounts:[account('a',100)]};
     expect(mergeData(phone,pc,true).accounts[0].openingKopecks).toBe(100);
@@ -38,7 +51,7 @@ describe('real HTTP PC ↔ Android synchronization',()=>{
   it('pulls the PC database, pushes phone edits, receives PC pushes and preserves data after reconnect',async()=>{
     (window as any).happyDOM.setURL('http://192.168.1.20/');
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mi-kapital-sync-'));cleanup.push(()=>fs.rmSync(dir,{recursive:true,force:true}));
-    const store=createStore(dir);const pcData={...emptyData(),accounts:[account('pc',12345)]};await store.save(pcData);
+    const store=createStore(dir);const pcData={...emptyData(),accounts:[account('pc',12345)],people:[{id:'person',name:'Алексей',createdAt:'2026-01-01'}]};await store.save(pcData);
     let remote:AppData|null=null;const server=createSyncServer(dir,store,(data:AppData)=>{remote=data;});await server.start();cleanup.push(()=>server.close());
     const port=server.info().port;const base=`http://127.0.0.1:${port}`;const token=server.config().lanToken;
     const preflight=await new Promise<{status:number;headers:http.IncomingHttpHeaders}>((resolve,reject)=>{const req=http.request(`${base}/sync/push`,{method:'OPTIONS',headers:{Origin:'https://appassets.androidplatform.net','Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type'}},res=>{res.resume();resolve({status:res.statusCode??0,headers:res.headers});});req.on('error',reject);req.end();});
@@ -53,6 +66,20 @@ describe('real HTTP PC ↔ Android synchronization',()=>{
     const set=async(label:string,value:string)=>{const el=field(label);await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));});};
     await set('Название','Расход с телефона');await set('Сумма, ₽','23,45');await act(async()=>{(container.querySelector('.modal button[type="submit"]') as HTMLButtonElement).click();});
     await until(()=>store.load().movements.length===1);expect(totals(store.load()).totalCapital).toBe(10000);expect(remote).not.toBeNull();
+    // Add a debt on the phone; the PC's saved database changes without a page refresh.
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Долги')!.click();});
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Добавить долг')!.click();});
+    await set('Название','Долг с телефона');await set('Изначальная сумма, ₽','300');
+    const select=container.querySelector('select[aria-label="Кому вы должны"]') as HTMLSelectElement;
+    await act(async()=>{Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value')!.set!.call(select,'Алексей');select.dispatchEvent(new Event('change',{bubbles:true}));});
+    await act(async()=>{(container.querySelector('.modal button[type="submit"]') as HTMLButtonElement).click();});
+    await until(()=>store.load().debts.some((d:any)=>d.title==='Долг с телефона'));
+    // An edit made and saved on the PC is pushed to the still-open phone via SSE.
+    const beforePc=store.load();const pcDebt={id:'pc-debt',title:'Долг с ПК',counterparty:'Алексей',direction:'i_owe' as const,principalKopecks:80000,date:'2026-11-01',dueDate:'',note:'',initialAccountId:null,payments:[]};
+    await act(async()=>{await store.save(stampChanges(beforePc,{...beforePc,debts:[...beforePc.debts,pcDebt]},'pc-ui',Date.now()));server.changed();});
+    await until(()=>container.textContent?.includes('Долг с ПК')??false);
+    expect(phoneData!.debts.map(d=>d.title)).toContain('Долг с ПК');
+    await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Мой капитал')!.click();});
     const response=await fetch(`${base}/sync/pull`,{headers:{Authorization:'Bearer '+token}});const envelope=await response.json();
     const next=stampChanges(envelope.data,{...envelope.data,accounts:[...envelope.data.accounts,account('pc-added',50000)]},'pc-http',Date.now());
     const push=await act(async()=>fetch(`${base}/sync/push`,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({revision:envelope.revision,deviceId:'pc-http',data:next})}));expect(push.status).toBe(200);

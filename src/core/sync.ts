@@ -27,7 +27,12 @@ const comparable = (value: unknown): string => {
   if (value && typeof value === 'object') return `{${Object.entries(value).filter(([k]) => k !== 'sync').sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${JSON.stringify(k)}:${comparable(v)}`).join(',')}}`;
   return JSON.stringify(value);
 };
-export const sameData = (a: AppData, b: AppData) => comparable({ ...a, updatedAt: '' }) === comparable({ ...b, updatedAt: '' });
+// Device identifiers are local, but record clocks and deletion markers must travel
+// even when the visible records happen to be equal on both devices.
+export const sameData = (a: AppData, b: AppData) =>
+  comparable({ ...a, updatedAt: '' }) === comparable({ ...b, updatedAt: '' }) &&
+  comparable(a.sync?.clocks ?? {}) === comparable(b.sync?.clocks ?? {}) &&
+  comparable(a.sync?.deleted ?? {}) === comparable(b.sync?.deleted ?? {});
 // Record-level last-writer-wins, with deletion tombstones. Offline edits on different
 // records survive; a whole-file timestamp comparison would silently erase one of them.
 export function stampChanges(before: AppData, after: AppData, device: string, now = Date.now()): AppData {

@@ -14,10 +14,16 @@ function loadConfig(userData) {
   return { lanEnabled: saved.lanEnabled !== false, lanPort: Number.isInteger(saved.lanPort) && saved.lanPort >= 1024 && saved.lanPort <= 65535 ? saved.lanPort : 47653, lanToken: /^[a-f0-9]{64}$/.test(saved.lanToken || '') ? saved.lanToken : crypto.randomBytes(32).toString('hex'), lanUrl: '', cloudEnabled: !!saved.cloudEnabled, supabaseUrl: typeof saved.supabaseUrl === 'string' ? saved.supabaseUrl : '', supabaseKey: typeof saved.supabaseKey === 'string' ? saved.supabaseKey : '', email: typeof saved.email === 'string' ? saved.email : '' };
 }
 function addresses(port) {
-  return Object.values(os.networkInterfaces()).flat().filter(n => n && n.family === 'IPv4' && !n.internal).map(n => `http://${n.address}:${port}`);
+  return [...new Set(Object.values(os.networkInterfaces()).flat().filter(n => n && n.family === 'IPv4' && !n.internal && /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(n.address)).map(n => `http://${n.address}:${port}`))];
 }
 function createSyncServer(userData, store, onRemote) {
   let config = loadConfig(userData);
+  // Keep the pairing key across restarts, including a first install where the
+  // settings screen has never been saved. Otherwise paired phones lose access.
+  let existingSettings = {};
+  try { existingSettings = JSON.parse(fs.readFileSync(configPath(userData), 'utf8')); }
+  catch (e) { if (e.code !== 'ENOENT') throw new Error('Не удалось прочитать настройки синхронизации; файл не изменён.'); }
+  if (!/^[a-f0-9]{64}$/.test(existingSettings.lanToken || '')) atomicWrite(configPath(userData), JSON.stringify({ ...existingSettings, ...config }, null, 2));
   let server = null;
   let revision = 0;
   let queue = Promise.resolve();

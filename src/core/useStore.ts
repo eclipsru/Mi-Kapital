@@ -30,7 +30,7 @@ export function useStore() {
     if (!loaded.current) return;
     const current = dataRef.current;
     const proposed = fn(current);
-    const next = validateData({ ... (remote ? proposed : stampChanges(current, proposed, current.sync?.device ?? deviceId.current)), updatedAt: new Date().toISOString() });
+    const next = validateData({ ... (remote ? proposed : stampChanges(current, proposed, deviceId.current)), updatedAt: new Date().toISOString() });
     if (remote && sameData(current, next)) return;
     dataRef.current = next;
     setData(next);
