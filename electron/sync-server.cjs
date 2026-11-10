@@ -42,7 +42,10 @@ function createSyncServer(userData, store, onRemote) {
   function envelope() { return { data: store.load(), revision, deviceId }; }
   function broadcast() { for (const res of clients) res.write(`data: ${JSON.stringify({ revision })}\n\n`); }
   async function start() {
-    if (server) await new Promise(resolve => server.close(resolve));
+    if (server) {
+      for (const client of clients) client.end();
+      await new Promise(resolve => server.close(resolve));
+    }
     server = null; error = '';
     if (!config.lanEnabled) return;
     const current = http.createServer((req, res) => {
@@ -87,7 +90,7 @@ function createSyncServer(userData, store, onRemote) {
   return {
     start,
     config: () => ({ ...config }),
-    info: () => ({ addresses: addresses(config.lanPort), port:config.lanPort, token:config.lanToken, enabled:config.lanEnabled, error }),
+    info: () => ({ addresses: addresses(config.lanPort), port:config.lanPort, token:config.lanToken, enabled:config.lanEnabled, connectedClients:clients.size, error }),
     saveConfig: async next => {
       if (!next || typeof next.lanEnabled !== 'boolean' || !Number.isInteger(next.lanPort) || next.lanPort < 1024 || next.lanPort > 65535 || !/^[a-f0-9]{64}$/.test(next.lanToken)) throw new Error('Неверные настройки локальной сети');
       const restart = next.lanEnabled !== config.lanEnabled || next.lanPort !== config.lanPort || next.lanToken !== config.lanToken;

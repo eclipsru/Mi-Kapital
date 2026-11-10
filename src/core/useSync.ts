@@ -10,7 +10,7 @@ export function useSync(data: AppData, ready: boolean, mergeRemote: (data: unkno
   const [config, setConfig] = useState<SyncConfig>(defaultSyncConfig);
   const [configReady, setConfigReady] = useState(false);
   const [status, setStatus] = useState<SyncStatus>({ transport:'offline', state:'idle', message:'Локальное сохранение', pending:false });
-  const [pcInfo, setPcInfo] = useState<{ addresses:string[]; port:number; token:string; enabled:boolean; error?:string } | null>(null);
+  const [pcInfo, setPcInfo] = useState<{ addresses:string[]; port:number; token:string; enabled:boolean; connectedClients?:number; error?:string } | null>(null);
   const cloud = useRef<CloudSync | null>(null);
   const running = useRef(false);
   const again = useRef(false);
@@ -55,6 +55,11 @@ export function useSync(data: AppData, ready: boolean, mergeRemote: (data: unkno
         const current = () => dataRef.current;
         const apply = (next: AppData, preferRemote = false) => mergeRemote(validateData(next), preferRemote);
         let pcError = '';
+        let livePcInfo = pcInfo;
+        if (bridge?.platform === 'windows' && bridge.syncInfo) {
+          livePcInfo = await bridge.syncInfo();
+          setPcInfo(previous => JSON.stringify(previous) === JSON.stringify(livePcInfo) ? previous : livePcInfo);
+        }
         setStatus(s => ({ ...s, state:'syncing', pending:true }));
         let transported = false;
         if (bridge?.platform === 'android' && cfg.lanUrl && cfg.lanToken) {
@@ -88,14 +93,18 @@ export function useSync(data: AppData, ready: boolean, mergeRemote: (data: unkno
             transported = true;
             result = { transport:'cloud', state:'synced', message:pcError ? 'Supabase включён · ПК недоступен' : 'Синхронизировано с Supabase', lastSyncedAt:new Date().toISOString(), pending:false };
             setStatus(result);
-          } catch (e) { result = { transport:transported ? 'pc' : 'offline', state:transported ? 'synced' : 'error', message:transported ? 'ПК синхронизирован; облако временно недоступно' : `${pcError ? pcError + ' ' : ''}Supabase: ${(e as Error).message}`, pending:!transported }; setStatus(result); }
+          } catch (e) { result = { transport:transported ? 'pc' : 'offline', state:'error', message:`${pcError ? pcError + ' ' : ''}Облако недоступно: ${(e as Error).message}. Изменения сохраняются локально.`, pending:true }; setStatus(result); }
         } else if (transported) {
-          if (bridge?.platform === 'windows') { result = { transport:'pc', state:'synced', message:pcInfo?.error || (cfg.lanEnabled ? 'База на ПК · для связи с телефоном нужно сопряжение по QR' : 'База на ПК · подключение телефона по Wi‑Fi выключено'), lastSyncedAt:new Date().toISOString(), pending:false }; setStatus(result); }
+          if (bridge?.platform === 'windows') {
+            const connected = !!livePcInfo?.connectedClients;
+            result = { transport:'pc', state:livePcInfo?.error ? 'error' : connected ? 'synced' : 'idle', message:livePcInfo?.error || (!cfg.lanEnabled ? 'Подключение по Wi‑Fi выключено' : connected ? 'Телефон подключён к ПК · статус обмена смотрите на телефоне' : 'Телефон не подключён · откройте настройки и отсканируйте QR'), pending:false };
+            setStatus(result);
+          }
         } else { result = { transport:'offline', state:pcError ? 'error' : 'idle', message:pcError || (bridge?.platform === 'android' ? 'Локально на телефоне · настройте синхронизацию' : 'Локально на ПК · облако не включено'), pending:!!pcError }; setStatus(result); }
       } while (again.current);
     } catch (e) { result = { transport:'offline', state:'error', message:conflictMessage(e), pending:true }; if (alive.current) setStatus(result); }
     return result;
-  }, [mergeRemote, dataRef, pcInfo?.error]);
+  }, [mergeRemote, dataRef, pcInfo]);
   const run = useCallback(async (): Promise<SyncStatus | undefined> => {
     if (!ready || !configReady) return;
     if (running.current) { again.current = true; await activeRun.current; return runRef.current(); }

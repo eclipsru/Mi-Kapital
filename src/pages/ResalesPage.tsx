@@ -34,7 +34,7 @@ export function ResalesPage({ data, onEdit, onBack }: { data: AppData; onEdit: (
       <SectionHead title={tabLabels[tab]} count={filtered.length}/>
       {filtered.length ? <div className="product-grid">{filtered.map(product => <ProductCard key={product.id} product={product} onEdit={onEdit}/>)}</div> : <Empty icon={Package} title={query ? 'Ничего не найдено' : tab === 'sold' ? 'Пока нет продаж' : 'Пока нет товаров'} text={query ? 'Попробуйте другой запрос или месяц.' : tab === 'sold' ? 'Нажмите «Продать» в карточке товара. Прибыль и возврат покупки рассчитаются автоматически.' : 'Добавьте первый товар: фото, цену покупки и источники денег.'} action={tab !== 'sold' && <Button onClick={add}>Добавить товар</Button>}/>}
     </section>
-    <div className="info-banner resales-rule"><Wallet size={20}/><p><strong>Как двигаются деньги.</strong> Часть «Капитал» уменьшает остаток счёта. «Из кармана» не списывается со счёта и сразу добавляется к остатку и общему капиталу; в общей сумме она не считается дважды. После продажи эта сумма остаётся в остатке, и добавляются 15% чистой прибыли; остальные 15% на долги и 70% на руки начисляются на карточки ролей. Прибыль считается после доли инвестора.</p></div>
+    <div className="info-banner resales-rule"><Wallet size={20}/><p><strong>Как двигаются деньги.</strong> Часть «Капитал» уменьшает остаток счёта. «Из кармана» не списывается со счёта и до продажи не добавляется к остатку. После продажи в остаток возвращаются цена покупки и 15% чистой прибыли; остальные 15% на долги и 70% на руки начисляются на карточки ролей. Прибыль считается после доли инвестора.</p></div>
   </>;
 }
 function ProductCard({ product, onEdit }: { product: ResaleProduct; onEdit: (request: ProductRequest) => void }) {

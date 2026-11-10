@@ -43,10 +43,10 @@ describe('real React UI flows',()=>{
     await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(86050));expect(roleCard('capital')).toContain(money(6000));
     await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(86050));expect(container!.textContent).toContain('Погашение: Заём');
   });
-  it('shows pocket funding in remainder immediately and only once in capital through a sale',async()=>{
+  it('leaves remainder unchanged for a pocket purchase and adds cost and profit after sale',async()=>{
     localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash',openingKopecks:0,createdAt:'2026-01-01'}]}));await mount();
     await click('Товар');await click('Добавить товар');await input('Вид товара','Ноутбук');await check('Из кармана');await input('Сумма из кармана, ₽','1000');await submitModal();
-    await click('Мой капитал');expect(cashText()).toBe(money(100000));expect(container!.querySelector('.summary-stack .summary-card strong')?.textContent).toBe(money(100000));expect(container!.querySelector('.inventory-summary strong')?.textContent).toBe(money(100000));
+    await click('Мой капитал');expect(cashText()).toBe(money(100000));expect(container!.querySelector('.summary-stack .summary-card strong')?.textContent).toBe(money(0));expect(container!.querySelector('.inventory-summary strong')?.textContent).toBe(money(100000));
     await clickSelector('.inventory-summary');await click('Продать');await input('Цена продажи, ₽','2000');await submitModal();await click('Мой капитал');
     expect(cashText()).toBe(money(115000));expect(container!.querySelector('.summary-stack .summary-card strong')?.textContent).toBe(money(115000));expect(container!.querySelector('.inventory-summary strong')?.textContent).toBe(money(0));
   });
@@ -82,7 +82,7 @@ describe('real React UI flows',()=>{
     localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash',openingKopecks:100000,createdAt:'2026-01-01'}],products:[product]}));window.location.hash='resales';await mount();
     await click('Вложения');await input('Сумма из капитала, ₽','0');await input('Сумма из кармана, ₽','0');expect(container!.querySelector('.purchase-total')?.textContent).toContain('Бесплатно');await submitModal();expect(saved().products[0].funding).toEqual([]);expect(totals(saved()).remainder).toBe(100000);await click('Вложения');await input('Сумма из капитала, ₽','600');await check('Из кармана');await input('Сумма из кармана, ₽','400');await submitModal();
     await click('Продать');await input('Цена продажи, ₽','1500');await submitModal();expect(totals(saved()).onHand).toBe(146000);await clickTab(4);await click('Изменить продажу');await input('Цена продажи, ₽','2000');await submitModal();expect(totals(saved()).onHand).toBe(152000);expect(saved().incomes.length).toBe(0);
-    await click('Изменить продажу');await click('Отменить продажу');expect(saved().products[0].sale).toBeUndefined();expect(totals(saved()).onHand).toBe(80000);expect(totals(saved()).assets).toBe(100000);await clickTab(0);
+    await click('Изменить продажу');await click('Отменить продажу');expect(saved().products[0].sale).toBeUndefined();expect(totals(saved()).onHand).toBe(40000);expect(totals(saved()).assets).toBe(100000);await clickTab(0);
     await click('Вложения');await click('Удалить');await click('Да, удалить');expect(saved().products.length).toBe(0);expect(totals(saved()).onHand).toBe(100000);expect(totals(saved()).assets).toBe(0);
   });
   it('shows a loss explicitly and returns only the sale price',async()=>{
@@ -132,6 +132,6 @@ describe('phone navigation, split repayment and free product',()=>{
   });
   it('adds a free product without an account and replaces Бесплатно with pocket funding',async()=>{
     window.location.hash='resales';await mount();await click('Добавить товар');await input('Вид товара','Подарок');expect(container!.querySelector('.purchase-total')?.textContent).toContain('Бесплатно');await submitModal();expect(saved().products[0].funding).toEqual([]);expect(container!.querySelector('.product-cost')?.textContent).toContain('Бесплатно');
-    await click('Вложения');await check('Из кармана');await input('Сумма из кармана, ₽','25');expect(container!.querySelector('.purchase-total')?.textContent).toContain(money(2500));expect(container!.querySelector('.purchase-total')?.textContent).not.toContain('Бесплатно');await submitModal();expect(totals(saved()).assets).toBe(2500);expect(totals(saved()).remainder).toBe(2500);expect(totals(saved()).totalCapital).toBe(2500);
+    await click('Вложения');await check('Из кармана');await input('Сумма из кармана, ₽','25');expect(container!.querySelector('.purchase-total')?.textContent).toContain(money(2500));expect(container!.querySelector('.purchase-total')?.textContent).not.toContain('Бесплатно');await submitModal();expect(totals(saved()).assets).toBe(2500);expect(totals(saved()).remainder).toBe(0);expect(totals(saved()).totalCapital).toBe(2500);
   });
 });

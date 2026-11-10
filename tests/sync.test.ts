@@ -42,9 +42,31 @@ describe('record-level sync',()=>{
     const store=createStore(dir);const first=createSyncServer(dir,store,()=>{});const token=first.config().lanToken;first.close();
     const restarted=createSyncServer(dir,store,()=>{});expect(restarted.config().lanToken).toBe(token);restarted.close();
   });
+  it('reports an active phone channel and closes it when LAN sharing is disabled',async()=>{
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'mi-kapital-channel-'));cleanup.push(()=>fs.rmSync(dir,{recursive:true,force:true}));
+    const server=createSyncServer(dir,createStore(dir),()=>{});await server.start();cleanup.push(()=>server.close());
+    expect(server.info().connectedClients).toBe(0);
+    const request=http.get(`http://127.0.0.1:${server.info().port}/sync/events`,{headers:{Authorization:'Bearer '+server.config().lanToken}});
+    cleanup.push(()=>{request.destroy();});
+    await new Promise<void>((resolve,reject)=>{request.on('response',res=>{res.resume();resolve();});request.on('error',reject);});
+    expect(server.info().connectedClients).toBe(1);
+    await server.saveConfig({...server.config(),lanEnabled:false});
+    expect(server.info().connectedClients).toBe(0);expect(server.info().enabled).toBe(false);
+  });
   it('uses the PC for legacy equal-clock conflicts instead of choosing stale phone amounts lexicographically',()=>{
     const phone={...emptyData(),accounts:[account('a',900)]};const pc={...emptyData(),accounts:[account('a',100)]};
     expect(mergeData(phone,pc,true).accounts[0].openingKopecks).toBe(100);
+  });
+});
+describe('Windows connection status',()=>{
+  it('does not show a connected phone when only the PC server is running',async()=>{
+    const data=emptyData();const config={...defaultSyncConfig(),lanToken:'a'.repeat(64)};
+    const container=document.createElement('div');document.body.append(container);
+    (window as any).desktop={platform:'windows',info:async()=>({version:'2.0.46',phase:'idle'}),checkUpdates:async()=>{},installUpdate:async()=>({ok:true}),openReleases:async()=>{},onUpdate:()=>()=>{},loadData:async()=>data,saveData:async()=>{},syncConfig:async()=>config,saveSyncConfig:async()=>{},syncInfo:async()=>({addresses:['http://192.168.1.3:47653'],port:47653,token:config.lanToken,enabled:true,connectedClients:0}),bootReady:()=>{},exportBackup:async()=>true};
+    const root=createRoot(container);cleanup.push(()=>{act(()=>root.unmount());container.remove();});
+    await act(async()=>{root.render(createElement(App));});
+    await until(()=>container.querySelector('.sync-pill')?.textContent==='Телефон не подключён');
+    expect(container.querySelector('.sync-pill .status-dot')?.classList.contains('green')).toBe(false);
   });
 });
 describe('real HTTP PC ↔ Android synchronization',()=>{

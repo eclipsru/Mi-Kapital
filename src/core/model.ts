@@ -37,12 +37,10 @@ export const accountRoleOrder: AccountRole[] = ['capital', 'hand', 'debt'];
 export const productStatusLabels: Record<ProductStatus | 'sold', string> = { preparing: 'На подготовке', listed: 'На продаже', sold: 'Продан' };
 export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
 export const productStatus = (p: ResaleProduct): ProductStatus | 'sold' => p.sale ? 'sold' : p.status ?? 'preparing';
-// «Из кармана» не списывается со счёта: пока товар не продан, его сумма
-// добавлена к остатку. После продажи она входит в возвращённую цену покупки.
+// «Из кармана» не списывается со счёта и не добавляется к остатку при покупке.
+// После продажи она входит в возвращённую цену покупки.
 export const deductedFunding = (product: ResaleProduct) => product.funding.filter(f => f.source === 'capital');
 export const productCost = (product: ResaleProduct) => sum(product.funding.map(f => f.amountKopecks));
-export const pocketFunding = (product: ResaleProduct) => sum(product.funding.filter(f => f.source === 'pocket').map(f => f.amountKopecks));
-export const unsoldPocketFunding = (data: AppData) => sum(inventoryProducts(data).map(pocketFunding));
 export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data, true) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
 // Exact integer rounding: percentages are basis points (15% = 1500, 12.5% = 1250).
 export function shareKopecks(amountKopecks: number, basisPoints: number): number {
@@ -97,8 +95,7 @@ export function returnedPrincipal(product: ResaleProduct): number {
   const cost = productCost(product);
   return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
 }
-// Остаток капитала: денежные счета, 15% чистой прибыли шабашек и суммы
-// «Из кармана» по непроданным товарам.
+// Остаток капитала: денежные счета и 15% чистой прибыли шабашек.
 // Покупки товаров уже уменьшают денежные счета, продажа возвращает тело покупки и 15% прибыли.
 // Обычные расходы, корректировки и прежние поступления остаются в расчёте; долги не вычитаются повторно.
 export function capitalRemainder(data: AppData, ignoreDebts = false): number {
@@ -107,7 +104,7 @@ export function capitalRemainder(data: AppData, ignoreDebts = false): number {
   const jobs = oddJobIncomes(data).filter(i => liquidIds.has(i.accountId));
   const jobReceipts = sum(jobs.map(i => i.amountKopecks));
   const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
-  return liquid - jobReceipts + jobCapital + unsoldPocketFunding(data);
+  return liquid - jobReceipts + jobCapital;
 }
 export interface StatusDurations { preparingMs: number; listedMs: number; soldMs: number }
 export function statusDurations(product: ResaleProduct, now = Date.now()): StatusDurations {
@@ -236,10 +233,10 @@ export function totals(data: AppData) {
   const assets = inventoryValue(data);
   const remainder = capitalRemainder(data);
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
-  // Unsold pocket funding appears in both the displayed assets and remainder.
-  // Count it once in total capital. Sales remove that overlap and return the cost
-  // plus 15% profit to the account; debt cash flows never affect this figure.
-  const totalCapital = assets + capitalRemainder(data, true) - unsoldPocketFunding(data);
+  // При покупке из кармана сумма входит в активы, но не в остаток.
+  // При продаже стоимость покупки и 15% прибыли возвращаются на счёт.
+  // Движения по долгам полностью исключены из общего капитала.
+  const totalCapital = assets + capitalRemainder(data, true);
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());
   const incomeMonth = earnedIncome(data, month);
