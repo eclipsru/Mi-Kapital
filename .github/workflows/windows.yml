@@ -2,7 +2,6 @@ name: Windows application and verified updates
 on:
   push:
     branches: [main, 'arena/**']
-  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -33,7 +32,7 @@ jobs:
   windows:
     needs: verify
     runs-on: windows-latest
-    permissions: { contents: write }
+    permissions: { contents: write, actions: read }
     env:
       GH_TOKEN: ${{ github.token }}
       APP_VERSION: 2.0.${{ github.run_number }}
@@ -169,11 +168,36 @@ jobs:
             native-e2e.log
           if-no-files-found: ignore
           retention-days: 14
+      - name: Wait for the matching signed Android APK
+        shell: pwsh
+        run: |
+          $runId = $null
+          for ($i = 0; $i -lt 120; $i++) {
+            $runsJson = gh api "repos/${{ github.repository }}/actions/workflows/android.yml/runs?head_sha=${{ github.sha }}&event=push&per_page=10"
+            if ($LASTEXITCODE) { throw "Cannot query Android workflow runs" }
+            $runs = ($runsJson | ConvertFrom-Json).workflow_runs
+            $run = $runs | Select-Object -First 1
+            if ($run -and $run.status -eq 'completed') {
+              if ($run.conclusion -ne 'success') { throw "Android build failed: $($run.conclusion) (run $($run.id))" }
+              $runId = $run.id
+              break
+            }
+            Start-Sleep -Seconds 15
+          }
+          if (!$runId) { throw 'Timed out waiting for the signed Android APK' }
+          gh run download "$runId" --repo ${{ github.repository }} --name android-signed-apk --dir android-release
+          if ($LASTEXITCODE) { throw 'Could not download signed Android APK' }
+          if ((Get-Content android-release/android-release-version.txt -Raw).Trim() -ne $env:APP_VERSION) { throw 'Android and Windows versions do not match' }
+          $actual = (Get-FileHash android-release/Mi-Kapital-mobile.apk -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = ((Get-Content android-release/Mi-Kapital-mobile.apk.sha256 -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+          if ($actual -ne $expected) { throw 'Android APK SHA-256 mismatch' }
+          Copy-Item android-release/Mi-Kapital-mobile.apk, android-release/Mi-Kapital-mobile.apk.sha256 release/
       - name: Publish only after both update paths pass
         shell: pwsh
         run: |
           $tag="v$env:APP_VERSION"
           $notes="Мой капитал $env:APP_VERSION`n`nWindows 10/11 x64. Скачайте Mi-Kapital-Setup-$env:APP_VERSION.exe и установите один раз.`n`nОбновления: кнопка «Обновления» внутри приложения. Проверены оба пути на установленной Windows-сборке: загрузка только изменившихся файлов и дифференциальное обновление оболочки. Сохранность данных проверена.`n`nСборка без коммерческой Authenticode-подписи; Windows SmartScreen может показать предупреждение.`n`nФайлы update-*.gz, update-manifest.json, latest.yml и .blockmap нужны апдейтеру — не удаляйте их из выпуска."
           $files=@(Get-ChildItem release -File | Where-Object { $_.Name -match '^Mi-Kapital-Setup-.*\.exe(\.blockmap)?$|^latest\.yml$|^update-.*\.gz$|^update-manifest\.json$|^build-info\.json$' } | ForEach-Object { $_.FullName })
+          $files += (Resolve-Path release/Mi-Kapital-mobile.apk).Path, (Resolve-Path release/Mi-Kapital-mobile.apk.sha256).Path
           gh release create $tag $files --repo ${{ github.repository }} --target ${{ github.sha }} --title "Мой капитал $env:APP_VERSION" --notes $notes --latest
           if ($LASTEXITCODE) { exit $LASTEXITCODE }

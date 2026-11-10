@@ -2,9 +2,6 @@ name: Android APK and widgets
 on:
   push:
     branches: [main, 'arena/**']
-  release:
-    types: [published]
-  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -21,12 +18,15 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name || github.sha }}
       - uses: actions/setup-node@v5
         with: { node-version: 22, cache: npm }
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: 17 }
+      - name: Test first update cache on a fresh installation
+        run: |
+          mkdir -p "$RUNNER_TEMP/update-test"
+          javac -d "$RUNNER_TEMP/update-test" android/app/src/main/java/ru/eclipsru/mikapital/UpdateFiles.java android/tests/UpdateFilesTest.java
+          java -cp "$RUNNER_TEMP/update-test" ru.eclipsru.mikapital.UpdateFilesTest
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.11.1' }
       - run: npm ci
@@ -35,19 +35,15 @@ jobs:
       - name: Resolve the same version as the Windows release for this commit
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            VERSION="${{ github.event.release.tag_name }}"; VERSION="${VERSION#v}"
-          else
-            VERSION=""
-            for i in $(seq 1 24); do
-              RUN_NUMBER="$(gh api "repos/${{ github.repository }}/actions/workflows/windows.yml/runs?head_sha=${{ github.sha }}&per_page=1" --jq '.workflow_runs[0].run_number // empty')"
-              if [[ -n "$RUN_NUMBER" ]]; then VERSION="2.0.$RUN_NUMBER"; break; fi
-              sleep 5
-            done
-            if [[ -z "$VERSION" ]]; then
-              echo "::error title=Android version alignment::No Windows workflow run found for this commit; refusing to publish a mismatched APK version."
-              exit 1
-            fi
+          VERSION=""
+          for i in $(seq 1 24); do
+            RUN_NUMBER="$(gh api "repos/${{ github.repository }}/actions/workflows/windows.yml/runs?head_sha=${{ github.sha }}&event=push&per_page=1" --jq '.workflow_runs[0].run_number // empty')"
+            if [[ -n "$RUN_NUMBER" ]]; then VERSION="2.0.$RUN_NUMBER"; break; fi
+            sleep 5
+          done
+          if [[ -z "$VERSION" ]]; then
+            echo "::error title=Android version alignment::No Windows workflow run found for this commit; refusing to publish a mismatched APK version."
+            exit 1
           fi
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: Build and package web assets
@@ -58,7 +54,7 @@ jobs:
           npm run build
           node scripts/build-android-assets.mjs
           echo "APP_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
-          echo "APP_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "APP_VERSION_CODE=${VERSION##*.}" >> "$GITHUB_ENV"
       - name: Require persistent release signing
         shell: bash
         run: |
@@ -83,31 +79,16 @@ jobs:
           "$APK" verify --verbose android/app/build/outputs/apk/release/app-release.apk
           cp android/app/build/outputs/apk/release/app-release.apk Mi-Kapital-mobile.apk
           sha256sum Mi-Kapital-mobile.apk > Mi-Kapital-mobile.apk.sha256
-      - name: Upload APK to published release
-        if: github.event_name == 'release'
-        run: gh release upload "${{ github.event.release.tag_name }}" Mi-Kapital-mobile.apk Mi-Kapital-mobile.apk.sha256 --clobber
-      - name: Attach APK to the published release for this commit
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          for i in $(seq 1 40); do
-            TAG="$(gh api "repos/${{ github.repository }}/releases" --paginate --jq '.[] | select(.draft==false and .target_commitish=="${{ github.sha }}") | .tag_name' | head -1)"
-            if [[ -n "$TAG" ]]; then
-              gh release upload "$TAG" Mi-Kapital-mobile.apk Mi-Kapital-mobile.apk.sha256 --clobber
-              echo "Attached Android APK to $TAG"
-              exit 0
-            fi
-            sleep 30
-          done
-          echo "::warning::No published release for this commit yet; APK retained as a branch artifact."
-      - name: Retain branch build for inspection
-        if: github.event_name != 'release'
+          echo "$RELEASE_VERSION" > android-release-version.txt
+      - name: Upload APK for the matching Windows release
         uses: actions/upload-artifact@v4
         with:
           name: android-signed-apk
           path: |
             Mi-Kapital-mobile.apk
             Mi-Kapital-mobile.apk.sha256
+            android-release-version.txt
+          if-no-files-found: error
           retention-days: 14
       - name: Remove signing material
         if: always()
