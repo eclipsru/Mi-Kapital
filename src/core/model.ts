@@ -37,11 +37,13 @@ export const accountRoleOrder: AccountRole[] = ['capital', 'hand', 'debt'];
 export const productStatusLabels: Record<ProductStatus | 'sold', string> = { preparing: 'На подготовке', listed: 'На продаже', sold: 'Продан' };
 export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
 export const productStatus = (p: ResaleProduct): ProductStatus | 'sold' => p.sale ? 'sold' : p.status ?? 'preparing';
-// «Из кармана» входит в цену покупки, активы и прибыль, но не списывается ни с одного счёта.
-// Со счетов списывается только часть «Капитал»; при продаже вся цена покупки возвращается на выбранный счёт.
+// «Из кармана» не списывается со счёта: пока товар не продан, его сумма
+// добавлена к остатку. После продажи она входит в возвращённую цену покупки.
 export const deductedFunding = (product: ResaleProduct) => product.funding.filter(f => f.source === 'capital');
 export const productCost = (product: ResaleProduct) => sum(product.funding.map(f => f.amountKopecks));
-export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
+export const pocketFunding = (product: ResaleProduct) => sum(product.funding.filter(f => f.source === 'pocket').map(f => f.amountKopecks));
+export const unsoldPocketFunding = (data: AppData) => sum(inventoryProducts(data).map(pocketFunding));
+export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data, true) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
 // Exact integer rounding: percentages are basis points (15% = 1500, 12.5% = 1250).
 export function shareKopecks(amountKopecks: number, basisPoints: number): number {
   if (!Number.isSafeInteger(amountKopecks) || amountKopecks < 0 || !Number.isInteger(basisPoints) || basisPoints < 0 || basisPoints > 10000) throw new Error('Некорректная сумма или процент');
@@ -95,7 +97,8 @@ export function returnedPrincipal(product: ResaleProduct): number {
   const cost = productCost(product);
   return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
 }
-// Остаток капитала: денежные счета без полной выручки шабашек, но с 15% их чистой прибыли.
+// Остаток капитала: денежные счета, 15% чистой прибыли шабашек и суммы
+// «Из кармана» по непроданным товарам.
 // Покупки товаров уже уменьшают денежные счета, продажа возвращает тело покупки и 15% прибыли.
 // Обычные расходы, корректировки и прежние поступления остаются в расчёте; долги не вычитаются повторно.
 export function capitalRemainder(data: AppData, ignoreDebts = false): number {
@@ -104,7 +107,7 @@ export function capitalRemainder(data: AppData, ignoreDebts = false): number {
   const jobs = oddJobIncomes(data).filter(i => liquidIds.has(i.accountId));
   const jobReceipts = sum(jobs.map(i => i.amountKopecks));
   const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
-  return liquid - jobReceipts + jobCapital;
+  return liquid - jobReceipts + jobCapital + unsoldPocketFunding(data);
 }
 export interface StatusDurations { preparingMs: number; listedMs: number; soldMs: number }
 export function statusDurations(product: ResaleProduct, now = Date.now()): StatusDurations {
@@ -233,12 +236,10 @@ export function totals(data: AppData) {
   const assets = inventoryValue(data);
   const remainder = capitalRemainder(data);
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
-  // Total capital ignores debts completely: neither new, old, added nor repaid debts
-  // touch it. Debt cash flows (initial principal and payments) are stripped out, so
-  // borrowing or repaying never changes total capital. The 15% capital share of each
-  // net profit is already inside the debt-free remainder: a sale returns cost + 15%
-  // to the account, and odd-job receipts are replaced by their 15% share.
-  const totalCapital = assets + capitalRemainder(data, true);
+  // Unsold pocket funding appears in both the displayed assets and remainder.
+  // Count it once in total capital. Sales remove that overlap and return the cost
+  // plus 15% profit to the account; debt cash flows never affect this figure.
+  const totalCapital = assets + capitalRemainder(data, true) - unsoldPocketFunding(data);
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());
   const incomeMonth = earnedIncome(data, month);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountBalance, accountReferenced, allocations, calculatePlan, capitalRemainder, cleanWorkValues, debtRemaining, emptyData, formatDuration, incomeCategories, incomeCategoryOptions, jobNetProfit, lastMonths, ledger, money, oddJobIncomes, parseMoney, people, productStatus, profitAllocation, resaleInventoryValue, statusDurations, suggestPlan, today, totals, shareKopecks, parsePercent, saleBreakdown, productCost, inventoryValue, earnedIncome, resaleEarnings, jobEarnings, products, validDate, workKindFields, workKinds, workPlans, workTitle, type Account, type Debt, type Income, type WorkPlan, type ResaleProduct } from '../src/core/model';
+import { accountBalance, accountReferenced, allocations, calculatePlan, capitalFundingAvailable, capitalRemainder, cleanWorkValues, debtRemaining, emptyData, formatDuration, incomeCategories, incomeCategoryOptions, jobNetProfit, lastMonths, ledger, money, oddJobIncomes, parseMoney, people, productStatus, profitAllocation, resaleInventoryValue, statusDurations, suggestPlan, today, totals, shareKopecks, parsePercent, saleBreakdown, productCost, inventoryValue, earnedIncome, resaleEarnings, jobEarnings, products, validDate, workKindFields, workKinds, workPlans, workTitle, type Account, type Debt, type Income, type WorkPlan, type ResaleProduct } from '../src/core/model';
 import { parseBackup, serializeBackup, validateData } from '../src/core/storage';
 const account:Account={id:'a',name:'Карта',kind:'bank',openingKopecks:100000,createdAt:'2026-01-01'};
 const income:Income={id:'i',title:'Зарплата',category:'Зарплата',amountKopecks:50000,accountId:'a',date:'2026-11-01',note:''};
@@ -71,7 +71,7 @@ describe('resale products and personal income',()=>{
   const product:ResaleProduct={id:'g1',kind:'Телефон',purchaseDate:'2026-01-01',funding:[{source:'capital',accountId:'a',amountKopecks:600000},{source:'pocket',accountId:'a',amountKopecks:400000}],description:'Проверен',photos:[],createdAt:'2026-01-01',investor:{name:'Алексей',amountKopecks:300000,percentBasisPoints:2000,terms:'20% прибыли'}};
   it('includes «Из кармана» in cost/assets/profit but never deducts it from an account',()=>{
     const d={...emptyData(),accounts:[account],products:[product]};
-    expect(productCost(product)).toBe(1000000);expect(accountBalance(d,'a')).toBe(-500000);expect(totals(d).onHand).toBe(-500000);expect(inventoryValue(d)).toBe(1000000);expect(totals(d).assets).toBe(1000000);expect(earnedIncome(d)).toBe(0);expect(accountReferenced(d,'a')).toBe(true);
+    expect(productCost(product)).toBe(1000000);expect(accountBalance(d,'a')).toBe(-500000);expect(totals(d).onHand).toBe(-100000);expect(inventoryValue(d)).toBe(1000000);expect(totals(d).assets).toBe(1000000);expect(earnedIncome(d)).toBe(0);expect(accountReferenced(d,'a')).toBe(true);
     const pocketOnly={...product,funding:[{source:'pocket' as const,accountId:'',amountKopecks:400000}]};const pd={...emptyData(),accounts:[account],products:[pocketOnly]};
     expect(validateData(pd).products![0].funding[0].accountId).toBe('');expect(accountBalance(pd,'a')).toBe(100000);expect(productCost(pocketOnly)).toBe(400000);expect(accountReferenced(pd,'a')).toBe(false);
   });
@@ -91,7 +91,7 @@ describe('resale products and personal income',()=>{
   });
   it('reverses edits, sale cancellation and deletion without duplicate movements',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
-    const {sale,...unsold}=sold;expect(totals({...d,products:[unsold]}).onHand).toBe(-500000);expect(inventoryValue({...d,products:[unsold]})).toBe(1000000);expect(totals({...d,products:[]}).onHand).toBe(100000);
+    const {sale,...unsold}=sold;expect(totals({...d,products:[unsold]}).onHand).toBe(-100000);expect(inventoryValue({...d,products:[unsold]})).toBe(1000000);expect(totals({...d,products:[]}).onHand).toBe(100000);
     expect(totals({...d,products:[{...sold,sale:{...sold.sale!,priceKopecks:1600000}}]}).onHand).toBe(572000);
   });
   it('roundtrips products, photos, voice and investor in backups and accepts old backups without products',()=>{
@@ -171,6 +171,32 @@ describe('net capital and free purchases',()=>{
     const t=totals(data);expect(t.remainder).toBe(127500);expect(t.payable).toBe(20000);expect(t.totalCapital).toBe(107500);expect(allocations(data)).toEqual({capital:7500,debt:7500,hand:35000,total:50000});
     expect(totals({...data,debts:[{...borrowed,payments:[{...borrowed.payments[0],amountKopecks:30000}]},data.debts[1]]}).totalCapital).toBe(107500);
     expect(totals({...data,debts:[]}).totalCapital).toBe(t.totalCapital);
+  });
+  it('counts pocket funding once at purchase, then keeps it plus 15% on sale',()=>{
+    const notebook:ResaleProduct={id:'pocket',kind:'Ноутбук',purchaseDate:'2026-11-01',funding:[{source:'pocket',accountId:'',amountKopecks:100000}],description:'',photos:[],createdAt:'2026-11-01'};
+    const base={...emptyData(),accounts:[{...account,openingKopecks:0}],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};
+    const bought={...base,products:[notebook]};
+    expect(accountBalance(bought,'a',true)).toBe(0);
+    expect(capitalRemainder(bought,true)).toBe(100000);expect(capitalFundingAvailable(bought)).toBe(100000);
+    expect(totals(bought)).toMatchObject({assets:100000,totalCapital:100000});
+    const sold={...notebook,sale:{priceKopecks:200000,date:'2026-11-09',accountId:'a'}};
+    const after={...base,products:[sold]};
+    expect(capitalRemainder(after,true)).toBe(115000);
+    expect(totals(after)).toMatchObject({assets:0,totalCapital:115000});
+    expect(allocations(after)).toMatchObject({capital:15000,hand:70000,debt:15000});
+    const loss={...base,products:[{...sold,sale:{...sold.sale,priceKopecks:50000}}]};
+    expect(capitalRemainder(loss,true)).toBe(50000);expect(totals(loss).totalCapital).toBe(50000);
+    expect(totals({...base,products:[notebook]}).totalCapital).toBe(100000); // cancel sale
+    expect(totals({...base,products:[]}).totalCapital).toBe(0); // delete purchase
+  });
+  it('handles mixed funding and capital spent on another item without double counting pocket money',()=>{
+    const mixed:ResaleProduct={id:'mixed',kind:'Товар',purchaseDate:'2026-11-01',funding:[{source:'capital',accountId:'a',amountKopecks:60000},{source:'pocket',accountId:'',amountKopecks:40000}],description:'',photos:[],createdAt:'2026-11-01'};
+    const data={...emptyData(),accounts:[{...account,openingKopecks:100000}],products:[mixed]};
+    expect(capitalRemainder(data,true)).toBe(80000);expect(totals(data)).toMatchObject({assets:100000,totalCapital:140000});
+    const another={...mixed,id:'another',funding:[{source:'capital' as const,accountId:'a',amountKopecks:80000}]};
+    const more={...data,products:[mixed,another]};expect(capitalRemainder(more,true)).toBe(0);expect(totals(more).totalCapital).toBe(140000);
+    const sold={...mixed,sale:{priceKopecks:150000,date:'2026-11-09',accountId:'a'}};
+    const after={...data,products:[sold,another]};expect(capitalRemainder(after,true)).toBe(67500);expect(totals(after)).toMatchObject({assets:80000,totalCapital:147500});
   });
   it('adds 15% of each resale net profit to total capital without touching it for debts',()=>{
     const laptop:ResaleProduct={id:'nb',kind:'Ноутбук',purchaseDate:'2026-11-01',funding:[{source:'capital',accountId:'a',amountKopecks:100000}],description:'',photos:[],createdAt:'2026-11-01'};
