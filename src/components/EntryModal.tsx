@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
-import { accountReferenced, accountKinds, accountRoles, accountRoleOrder, incomeCategories, incomeCategoryOptions, debtPaid, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AccountRole, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment, products } from '../core/model';
+import { accountReferenced, accountKinds, accountRoles, accountRoleOrder, incomeCategories, incomeCategoryOptions, debtPaid, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AccountRole, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment, type Person, products } from '../core/model';
 import { Button, Field, Modal } from './ui';
 import { VoiceField } from './VoiceField';
 import { people, type DebtKind, type VoiceNote } from '../core/model';
@@ -16,6 +16,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
   const [accountId, setAccountId] = useState(item && 'accountId' in item && item.accountId ? item.accountId : request.type === 'debt' ? request.item?.initialAccountId ?? '' : data.accounts[0]?.id ?? '');
   const [category, setCategory] = useState(request.type === 'income' ? request.item?.category ?? request.category ?? incomeCategories[0] : incomeCategories[0]);
   const [counterparty, setCounterparty] = useState(request.type === 'debt' ? request.item?.counterparty ?? '' : '');
+  const [addingPerson, setAddingPerson] = useState(false);
   const [direction, setDirection] = useState<'i_owe'|'owed_to_me'>(request.type === 'debt' ? request.item?.direction ?? 'i_owe' : 'i_owe');
   const [movementKind, setMovementKind] = useState<'expense'|'adjustment'>(request.type === 'movement' ? request.item?.kind ?? request.kind ?? 'expense' : 'expense');
   const [note, setNote] = useState(item && 'note' in item ? item.note : '');
@@ -50,10 +51,12 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
       onSave({ ...data, movements:editing ? data.movements.map(m=>m.id===movement.id?movement:m) : [...data.movements,movement] }, 'Операция сохранена. Капитал пересчитан.');
     } else if (request.type === 'debt') {
       if (!counterparty.trim()) return setError('Выберите человека из списка.');
-      if (!people(data).some(p => p.name === counterparty) && request.item?.counterparty !== counterparty) return setError('Сначала добавьте человека кнопкой «+» в разделе «Долги».');
+      const knownPerson = people(data).some(p => p.name.trim().toLowerCase() === counterparty.trim().toLowerCase());
+      if (!knownPerson && request.item?.counterparty !== counterparty && !addingPerson) return setError('Выберите человека или добавьте нового.');
       if (editing && value < debtPaid(request.item!)) return setError('Сумма долга не может быть меньше уже внесённых платежей.');
       const debt: Debt = { id:request.item?.id ?? uid(), title:common.title, counterparty:counterparty.trim().slice(0,100), direction, principalKopecks:value, date, dueDate, note:common.note, ...(voice ? { voice } : {}), kind:debtKind, initialAccountId:accountId || null, payments:request.item?.payments ?? [] };
-      onSave({ ...data, debts:editing ? data.debts.map(d=>d.id===debt.id?debt:d) : [...data.debts,debt] }, editing ? 'Долг обновлён' : 'Долг добавлен');
+      const newPerson: Person | null = !knownPerson && addingPerson ? { id: uid(), name: counterparty.trim().slice(0, 100), createdAt: new Date().toISOString() } : null;
+      onSave({ ...data, ...(newPerson ? { people: [...people(data), newPerson] } : {}), debts:editing ? data.debts.map(d=>d.id===debt.id?debt:d) : [...data.debts,debt] }, newPerson ? 'Человек и долг добавлены' : editing ? 'Долг обновлён' : 'Долг добавлен');
     } else {
       if (editing) {
         const old = request.item!.amountKopecks;
@@ -85,7 +88,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
     {request.type==='account' && <Field label="Тип счёта"><select className="inp" value={kind} onChange={e=>setKind(e.target.value as AccountKind)}>{Object.entries(accountKinds).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></Field>}
     {request.type==='account' && <Field label="Роль в распределении прибыли" hint="Карточка роли показывает начисленные проценты и ничего не вычитает."><select className="inp" value={role} onChange={e=>setRole(e.target.value as AccountRole | '')}><option value="">Без роли</option>{accountRoleOrder.map(r=><option key={r} value={r}>{accountRoles[r]}</option>)}</select></Field>}
     {request.type==='debt' && <Field label="Вид долга"><select className="inp" aria-label="Вид долга" value={debtKind} onChange={e=>setDebtKind(e.target.value as DebtKind)}><option value="business">На дело</option><option value="consumer">Потребительские</option></select></Field>}
-    {request.type==='debt' && <Field label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'} hint="Новый человек добавляется кнопкой «+» в разделе «Долги»."><select className="inp" aria-label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'} required value={counterparty} onChange={e=>setCounterparty(e.target.value)}><option value="">Выберите человека</option>{people(data).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}{counterparty && !people(data).some(p=>p.name===counterparty) && <option value={counterparty}>{counterparty}</option>}</select></Field>}
+    {request.type==='debt' && <Field label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'} hint={addingPerson?'Имя будет сохранено в общем списке людей вместе с долгом.':'Выберите человека или добавьте нового прямо здесь.'}><div className="counterparty-entry">{addingPerson ? <input className="inp" aria-label="Имя нового человека" required maxLength={100} value={counterparty} onChange={e=>setCounterparty(e.target.value)} autoComplete="off" placeholder="Имя человека"/> : <select className="inp" aria-label={direction==='i_owe'?'Кому вы должны':'Кто вам должен'} required value={counterparty} onChange={e=>setCounterparty(e.target.value)}><option value="">Выберите человека</option>{people(data).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}{counterparty && !people(data).some(p=>p.name===counterparty) && <option value={counterparty}>{counterparty}</option>}</select>}<Button type="button" variant="secondary" onClick={()=>{setAddingPerson(!addingPerson);setCounterparty('');}}>{addingPerson?'Выбрать из списка':'+ Новый человек'}</Button></div></Field>}
     <div className="form-row"><Field label={request.type==='account'?'Начальный остаток, ₽':request.type==='debt'?'Изначальная сумма, ₽':'Сумма, ₽'} hint={request.type==='account'?'Деньги, которые уже есть до записанных операций.':movementKind==='adjustment'&&request.type==='movement'?'Можно указать отрицательную сумму.':''}><input className="inp money-input" required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/></Field>{request.type!=='account' && <Field label="Дата"><input className="inp" type="date" required min="1900-01-01" max="2200-12-31" value={date} onChange={e=>setDate(e.target.value)}/></Field>}</div>
     {request.type==='income' && <Field label="Направление дохода" hint="Прежняя запись. Новые товары добавляйте на странице «Перепродажи», работы — в «Шабашках»."><select className="inp" value={category} onChange={e=>setCategory(e.target.value)}>{incomeCategoryOptions(request.item?.category).map(c=><option key={c}>{c}</option>)}</select></Field>}
     {request.type==='debt' && <Field label="Срок возврата · необязательно"><input className="inp" type="date" min={date} max="2200-12-31" value={dueDate} onChange={e=>setDueDate(e.target.value)}/></Field>}

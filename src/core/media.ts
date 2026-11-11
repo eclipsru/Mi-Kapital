@@ -33,7 +33,9 @@ export async function preparePhoto(file: File): Promise<string> {
 }
 export function recordingMime(): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined;
-  return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
+  const isAndroid = typeof window !== 'undefined' && (window.desktop?.platform === 'android' || /Android/i.test(navigator.userAgent));
+  const candidates = isAndroid ? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'] : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  return candidates.find(type => MediaRecorder.isTypeSupported(type));
 }
 export async function prepareVoice(blob: Blob, seconds: number): Promise<VoiceNote> {
   if (!blob.size) throw new Error('Запись пустая. Попробуйте ещё раз.');

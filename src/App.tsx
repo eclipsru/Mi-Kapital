@@ -7,6 +7,7 @@ import { ResalesPage } from './pages/ResalesPage';
 import { ProductModal, type ProductRequest } from './components/ProductModal';
 import { DebtsPage } from './pages/DebtsPage';
 import { CalculationPage } from './pages/CalculationPage';
+import { ExpensesPage } from './pages/ExpensesPage';
 import { EntryModal, type EntryRequest } from './components/EntryModal';
 import { PersonModal, type PersonRequest } from './components/PersonModal';
 import { RepaymentModal, type RepaymentRequest } from './components/RepaymentModal';
@@ -21,8 +22,8 @@ import { QRCodeSVG } from 'qrcode.react';
 export const APK_URL = 'https://github.com/eclipsru/Mi-Kapital/releases/latest/download/Mi-Kapital-mobile.apk';
 import type { AppData } from './core/model';
 const navigation=[{key:'capital',label:'Мой капитал',icon:LayoutDashboard},{key:'income',label:'Доходы',icon:TrendingUp},{key:'debts',label:'Долги',icon:HandCoins},{key:'calculation',label:'Расчёт',icon:Calculator}] as const;
-type Page=typeof navigation[number]['key']|'odd-jobs'|'resales';
-function currentPage():Page{const key=window.location.hash.slice(1).split('?')[0];if(key==='odd-jobs'||key==='income/odd-jobs')return 'odd-jobs';if(key==='resales'||key==='income/resales')return 'resales';return navigation.some(n=>n.key===key)?key as Page:'capital';}
+type Page=typeof navigation[number]['key']|'odd-jobs'|'resales'|'expenses';
+function currentPage():Page{const key=window.location.hash.slice(1).split('?')[0];if(key==='odd-jobs'||key==='income/odd-jobs')return 'odd-jobs';if(key==='resales'||key==='income/resales')return 'resales';if(key==='expenses'||key==='calculation/expenses')return 'expenses';return navigation.some(n=>n.key===key)?key as Page:'capital';}
 export default function App(){
   const store=useStore(); const sync=useSync(store.data,store.ready&&!store.loadError,store.mergeRemote,store.dataRef); const syncRef=useRef(sync); syncRef.current=sync; const [downloadQr,setDownloadQr]=useState(false); const [page,setPage]=useState<Page>(currentPage);const[menu,setMenu]=useState(false);const[entry,setEntry]=useState<EntryRequest|WorkRequest|ProductRequest|PersonRequest|RepaymentRequest|null>(null);const[settings,setSettings]=useState(false);const[updatesOpen,setUpdatesOpen]=useState(false);const[update,setUpdate]=useState<UpdateState|null>(null);const[toast,setToast]=useState('');const[help,setHelp]=useState(false);
   useEffect(()=>{const applyRoute=()=>{const [route,query]=window.location.hash.slice(1).split('?');if(new URLSearchParams(query).get('new')==='1'){if(route==='resales')setEntry({type:'product'});else if(route==='odd-jobs')setEntry({type:'odd-job'});else if(route==='debts')setEntry({type:'debt'});window.location.hash=route;}};applyRoute();window.addEventListener('hashchange',applyRoute);return()=>window.removeEventListener('hashchange',applyRoute);},[]);
@@ -40,8 +41,8 @@ export default function App(){
   const save=(data:AppData,message:string)=>{try{store.update(()=>data);setToast(message);}catch(error){setToast((error as Error).message);}};
   const check=()=>{if(desktop())void desktop()!.checkUpdates();else{setUpdatesOpen(true);setSettings(false);}};
   const install=async()=>{const bridge=desktop();if(!bridge)return;try{await store.flush();const result=await bridge.installUpdate();if(!result.ok)setToast(result.message??'Не удалось установить обновление');}catch(error){setToast((error as Error).message);}};
-  const active=navigation.find(n=>n.key===page)??{key:'income' as const,label:page==='resales'?'Перепродажи':'Шабашки',icon:Hammer};
-  const section=page==='odd-jobs'||page==='resales'?'income':page;
+  const active=navigation.find(n=>n.key===page)??{key:'income' as const,label:page==='resales'?'Перепродажи':page==='expenses'?'Расходы':'Шабашки',icon:Hammer};
+  const section=page==='odd-jobs'||page==='resales'?'income':page==='expenses'?'calculation':page;
   const updateBusy=update?.phase==='checking'||update?.phase==='downloading';
   if (!store.ready || !sync.configReady || sync.authState === 'checking') return <div className="login-screen"><div className="loading-state">Загружаем защищённую базу…</div></div>;
   if (sync.authState !== 'signed-in' && (window as Window & { __MI_KAPITAL_TEST__?: boolean }).__MI_KAPITAL_TEST__ !== true) return <LoginScreen sync={sync}/>;
@@ -51,7 +52,7 @@ export default function App(){
       {update?.phase==='ready'&&<div className="update-banner"><Check size={18}/><span>Версия {update.targetVersion} готова к установке. Ваши данные сохранятся.</span><button onClick={()=>void install()}>Обновить сейчас<ArrowRight size={15}/></button></div>}
       {store.loadError&&<div className="storage-error" role="alert"><strong>Не удалось открыть данные.</strong> {store.loadError}<button onClick={()=>setSettings(true)}>Открыть настройки</button></div>}
       {store.saveState==='error'&&<div className="storage-error" role="alert">Изменения пока не записаны на диск. Не закрывайте приложение. Экспортируйте резервную копию в настройках.</div>}
-      <main id="main-content" className="main-content" tabIndex={-1}>{!store.ready?<div className="loading-state"><RefreshCw className="spin" size={25}/>Открываем ваш капитал…</div>:<>{page==='capital'&&<CapitalPage data={store.data} onEdit={setEntry} onCalculate={()=>navigate('calculation')} onOpenResales={()=>navigate('resales')}/>} {page==='income'&&<IncomePage data={store.data} onEdit={setEntry} onOpenJobs={()=>navigate('odd-jobs')} onOpenResales={()=>navigate('resales')}/>} {page==='resales'&&<ResalesPage data={store.data} onEdit={setEntry} onBack={()=>navigate('income')}/>} {page==='odd-jobs'&&<OddJobsPage data={store.data} onEdit={setEntry} onBack={()=>navigate('income')}/>}  {page==='debts'&&<DebtsPage data={store.data} onEdit={setEntry}/>} {page==='calculation'&&<CalculationPage data={store.data} onSavePlan={plan=>save({...store.data,plan},'Финансовый план сохранён')}/>}</>}
+      <main id="main-content" className="main-content" tabIndex={-1}>{!store.ready?<div className="loading-state"><RefreshCw className="spin" size={25}/>Открываем ваш капитал…</div>:<>{page==='capital'&&<CapitalPage data={store.data} onEdit={setEntry} onCalculate={()=>navigate('calculation')} onOpenResales={()=>navigate('resales')}/>} {page==='income'&&<IncomePage data={store.data} onEdit={setEntry} onOpenJobs={()=>navigate('odd-jobs')} onOpenResales={()=>navigate('resales')}/>} {page==='resales'&&<ResalesPage data={store.data} onEdit={setEntry} onBack={()=>navigate('income')}/>} {page==='odd-jobs'&&<OddJobsPage data={store.data} onEdit={setEntry} onBack={()=>navigate('income')}/>}  {page==='debts'&&<DebtsPage data={store.data} onEdit={setEntry}/>} {page==='calculation'&&<CalculationPage data={store.data} onSavePlan={plan=>save({...store.data,plan},'Финансовый план сохранён')} onOpenExpenses={()=>navigate('expenses')}/>} {page==='expenses'&&<ExpensesPage data={store.data} onEdit={setEntry}/>} </>}
       <footer className="main-footer"><span><ShieldCheck size={14}/>{sync.status.transport==='cloud'?'Данные синхронизированы с вашим Supabase':desktop()?.platform==='android'?'Данные сохранены на телефоне':'База данных хранится на этом компьютере'}</span><button onClick={()=>setSettings(true)}><ArrowDownToLine size={14}/>Сделать резервную копию</button><span>Мой капитал · 2.0</span></footer></main>
       {desktop()?.platform==='android'&&<nav className="bottom-nav" aria-label="Разделы приложения снизу">{navigation.map(({key,label,icon:Icon})=><button key={key} className={section===key?'active':''} aria-current={section===key?'page':undefined} onClick={()=>navigate(key)}><Icon size={19} strokeWidth={1.8}/><span>{key==='capital'?'Капитал':label}</span></button>)}</nav>}
     </div>

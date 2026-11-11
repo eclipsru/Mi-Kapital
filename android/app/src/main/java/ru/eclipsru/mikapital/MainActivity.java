@@ -22,7 +22,7 @@ public final class MainActivity extends Activity {
   private volatile String initialRoute; private volatile String pendingPairing; private volatile boolean routeApplied; private boolean bootReady;
   private final Handler handler=new Handler(Looper.getMainLooper());
   private final Runnable bootWatchdog=()->{if(!bootReady&&updater.activeRoot()!=null){updater.quarantine();Toast.makeText(this,"Обновление не запустилось. Открыта рабочая версия; данные сохранены.",Toast.LENGTH_LONG).show();reload();}};
-  private static String safeRoute(String route){return route!=null&&route.matches("(capital|income|debts|calculation|odd-jobs|resales|income/odd-jobs|income/resales)(\\?new=1)?")?route:null;}
+  private static String safeRoute(String route){return route!=null&&route.matches("(capital|income|debts|calculation|expenses|calculation/expenses|odd-jobs|resales|income/odd-jobs|income/resales)(\\?new=1)?")?route:null;}
   @Override public void onCreate(Bundle saved){
     super.onCreate(saved); getWindow().setStatusBarColor(0xff101217);getWindow().setNavigationBarColor(0xff101217);
     store=new NativeStore(this);updater=new Updater(this,store);
