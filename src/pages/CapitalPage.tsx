@@ -16,10 +16,10 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
     <PageHead eyebrow="ВАШИ ФИНАНСЫ · ОБЗОР" title="Мой капитал" description="Активы, остаток и распределение прибыли — в одной картине." action={<AddButton onClick={() => onEdit({ type: 'account' })}>Добавить счёт</AddButton>}/>
     <div className="overview-grid">
       <section className="balance-card">
-        <div className="balance-top"><span><Wallet size={18}/>Общий капитал</span><IconButton label={hidden ? 'Показать суммы' : 'Скрыть суммы'} onClick={() => setHidden(!hidden)}>{hidden ? <EyeOff size={18}/> : <Eye size={18}/>}</IconButton></div>
+        <div className="balance-top"><span><Wallet size={18}/>Капитал для перепродаж</span><IconButton label={hidden ? 'Показать суммы' : 'Скрыть суммы'} onClick={() => setHidden(!hidden)}>{hidden ? <EyeOff size={18}/> : <Eye size={18}/>}</IconButton></div>
         <div className="balance-amount">{amount(t.totalCapital)}</div>
-        <p>Активы + остаток − мои долги</p>
-        <div className="balance-bottom"><span><span className="status-dot green"/>Покупка переводит остаток в активы; при продаже возвращается только цена покупки</span><ShieldCheck size={19}/></div>
+        <p>Активы + остаток для перепродаж · долги отдельно</p>
+        <div className="balance-bottom"><span><span className="status-dot green"/>Покупка за капитал переводит сумму из остатка в активы; продажа возвращает цену покупки + 15% чистой прибыли</span><ShieldCheck size={19}/></div>
         <div className="balance-art" aria-hidden="true"><div className="art-ring ring-one"/><div className="art-ring ring-two"/><div className="art-ring ring-three"/><div className="art-coin"><span>₽</span></div><div className="art-mini"><TrendingUp size={27}/></div></div>
       </section>
       <div className="summary-stack">
@@ -35,7 +35,6 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
         return <button className={`account-card role-account-card role-${role}`} key={role} onClick={() => account ? onEdit({ type: 'account', item: account }) : setAssignRole(role)}>
           <div className="account-card-top"><span className={`account-icon kind-${account?.kind ?? 'bank'}`}>{account ? <AccountIcon kind={account.kind}/> : <Wallet size={21}/>}</span><ArrowUpRight size={17}/></div>
           <span className="metric-label">{accountRoles[role]}</span>
-          {role === 'hand' && <small className="borrowed-on-hand">Взял в долг: {amount(t.payable)}</small>}
           <h3>{account?.name ?? 'Счёт не назначен'}</h3>
           <strong>{amount(split[role])}</strong>
           {account && (role === 'capital' || role === 'hand') && <small className="role-balance-small">На счёте: {amount(accountBalance(data, account.id))}</small>}

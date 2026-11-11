@@ -38,7 +38,7 @@ export const productStatusLabels: Record<ProductStatus | 'sold', string> = { pre
 export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
 export const productStatus = (p: ResaleProduct): ProductStatus | 'sold' => p.sale ? 'sold' : p.status ?? 'preparing';
 // «Из кармана» входит в цену покупки, активы и прибыль, но не списывается ни с одного счёта.
-// Со счетов списывается только часть «Капитал»; при продаже возвращается только цена покупки. Доли прибыли начисляются отдельно на карточках ролей.
+// Со счетов списывается только часть «Капитал»; продажа возвращает цену покупки + 15% личной чистой прибыли.
 export const deductedFunding = (product: ResaleProduct) => product.funding.filter(f => f.source === 'capital');
 export const productCost = (product: ResaleProduct) => sum(product.funding.map(f => f.amountKopecks));
 export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
@@ -61,8 +61,9 @@ export function saleBreakdown(product: ResaleProduct) {
   const investorKopecks = product.sale ? shareKopecks(Math.max(0, profit), product.investor?.percentBasisPoints ?? 0) : 0;
   const personalProfit = profit - investorKopecks;
   const earnedKopecks = shareKopecks(Math.max(0, personalProfit), PERSONAL_SHARE_BPS);
+  // The resale balance receives purchase cost plus the 15% capital share of personal net profit.
   // A loss reduces available money by the full loss, not merely by 15% of it.
-  const returnedKopecks = !product.sale ? 0 : profit < 0 ? revenue : cost;
+  const returnedKopecks = !product.sale ? 0 : profit < 0 ? revenue : cost + earnedKopecks;
   const remainderKopecks = Math.max(0, personalProfit) - earnedKopecks;
   return { cost, revenue, profit, investorKopecks, personalProfit, earnedKopecks, returnedKopecks, remainderKopecks };
 }
@@ -95,16 +96,26 @@ export function returnedPrincipal(product: ResaleProduct): number {
   const cost = productCost(product);
   return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
 }
-// Остаток капитала: денежные счета без полной выручки шабашек, но с 15% их чистой прибыли.
-// Покупки товаров уже уменьшают денежные счета, продажа возвращает только тело покупки; доли прибыли не увеличивают остаток.
-// Обычные расходы, корректировки и прежние поступления остаются в расчёте; долги не вычитаются повторно.
+// Остаток капитала для перепродаж: деньги на счетах без полной выручки шабашек,
+// но с 15% чистой прибыли шабашек. Долговые поступления и платежи не влияют на этот показатель.
+// Покупки уменьшают остаток только на сумму из источника «Капитал»; продажа возвращает цену товара + 15% чистой прибыли.
 export function capitalRemainder(data: AppData): number {
   const liquidIds = new Set(liquidAccounts(data).map(a => a.id));
   const liquid = sum(liquidAccounts(data).map(a => accountBalance(data, a.id)));
+  let debtCashEffects = 0;
+  for (const debt of data.debts) {
+    if (debt.initialAccountId && liquidIds.has(debt.initialAccountId)) {
+      debtCashEffects += debt.direction === 'i_owe' ? debt.principalKopecks : -debt.principalKopecks;
+    }
+    for (const payment of debt.payments) {
+      if (!liquidIds.has(payment.accountId)) continue;
+      debtCashEffects += debt.direction === 'i_owe' ? -payment.amountKopecks : payment.amountKopecks;
+    }
+  }
   const jobs = oddJobIncomes(data).filter(i => liquidIds.has(i.accountId));
   const jobReceipts = sum(jobs.map(i => i.amountKopecks));
   const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
-  return liquid - jobReceipts + jobCapital;
+  return liquid - debtCashEffects - jobReceipts + jobCapital;
 }
 export interface StatusDurations { preparingMs: number; listedMs: number; soldMs: number }
 export function statusDurations(product: ResaleProduct, now = Date.now()): StatusDurations {
@@ -233,8 +244,8 @@ export function totals(data: AppData) {
   const assets = inventoryValue(data);
   const remainder = capitalRemainder(data);
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
-  // Net capital counts the outstanding liability once. Cash accounting stays unchanged.
-  const totalCapital = assets + remainder - payable;
+  // Resale capital is inventory plus available resale cash; debts are tracked separately and never change this total.
+  const totalCapital = assets + remainder;
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());
   const incomeMonth = earnedIncome(data, month);

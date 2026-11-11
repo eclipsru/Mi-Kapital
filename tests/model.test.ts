@@ -13,11 +13,11 @@ describe('integer money and dates',()=>{
 describe('coherent capital accounting',()=>{
   it('counts income exactly once in account and net capital',()=>{const d={...emptyData(),accounts:[account],incomes:[income]};expect(accountBalance(d,'a')).toBe(150000);expect(totals(d).onHand).toBe(150000);expect(totals(d).incomeTotal).toBe(0);});
   it('subtracts expenses and applies signed corrections',()=>{const d={...emptyData(),accounts:[account],movements:[{id:'m',kind:'expense' as const,title:'Покупка',amountKopecks:20000,date:'2026-11-01',accountId:'a',note:''},{id:'m2',kind:'adjustment' as const,title:'Курсовая разница',amountKopecks:-500,date:'2026-11-01',accountId:'a',note:''}]};expect(totals(d).onHand).toBe(79500);});
-  it('shows borrowed cash on hand without adding the debt principal a second time',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a'}]};expect(accountBalance(d,'a')).toBe(130000);expect(totals(d).onHand).toBe(130000);expect(totals(d).payable).toBe(30000);});
-  it('does not subtract principal twice on repayment',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};expect(accountBalance(d,'a')).toBe(120000);expect(debtRemaining(d.debts[0])).toBe(20000);expect(totals(d).onHand).toBe(120000);});
+  it('keeps debt transactions out of resale capital while preserving the real account balance',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a'}]};expect(accountBalance(d,'a')).toBe(130000);expect(totals(d).onHand).toBe(100000);expect(totals(d).totalCapital).toBe(100000);expect(totals(d).payable).toBe(30000);});
+  it('does not change resale capital when a debt payment is recorded',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};expect(accountBalance(d,'a')).toBe(120000);expect(debtRemaining(d.debts[0])).toBe(20000);expect(totals(d).onHand).toBe(100000);});
   it('excludes a pre-existing debt principal from on-hand money',()=>{const d={...emptyData(),accounts:[account],debts:[debt]};expect(totals(d).onHand).toBe(100000);expect(totals(d).payable).toBe(30000);expect(accountBalance(d,'a')).toBe(100000);});
   it('treats money owed to the user as receivable, not cash',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,direction:'owed_to_me' as const}]};expect(totals(d).onHand).toBe(100000);expect(totals(d).receivable).toBe(30000);expect(totals(d).assets).toBe(0);});
-  it('does not count a returned receivable as new personal income',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,direction:'owed_to_me' as const,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};expect(accountBalance(d,'a')).toBe(80000);expect(totals(d).onHand).toBe(80000);expect(totals(d).incomeTotal).toBe(0);});
+  it('keeps lending and returned debt payments separate from resale capital and income',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,direction:'owed_to_me' as const,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};expect(accountBalance(d,'a')).toBe(80000);expect(totals(d).onHand).toBe(100000);expect(totals(d).incomeTotal).toBe(0);});
   it('reverses deleted operations through derivation',()=>{const d={...emptyData(),accounts:[account],incomes:[income]};expect(accountReferenced(d,'a')).toBe(true);expect(accountBalance({...d,incomes:[]},'a')).toBe(100000);});
   it('includes initial loan movements and repayments in the activity feed',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};expect(ledger(d).map(i=>i.type)).toEqual(['payment','debt']);});
 });
@@ -75,10 +75,25 @@ describe('resale products and personal income',()=>{
     const pocketOnly={...product,funding:[{source:'pocket' as const,accountId:'',amountKopecks:400000}]};const pd={...emptyData(),accounts:[account],products:[pocketOnly]};
     expect(validateData(pd).products![0].funding[0].accountId).toBe('');expect(accountBalance(pd,'a')).toBe(100000);expect(productCost(pocketOnly)).toBe(400000);expect(accountReferenced(pd,'a')).toBe(false);
   });
-  it('deducts investor share before profit allocation and returns only the purchase cost',()=>{
+  it('deducts investor share before profit allocation and returns purchase cost plus 15% of personal profit',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
-    expect(saleBreakdown(sold)).toMatchObject({profit:500000,investorKopecks:100000,personalProfit:400000,earnedKopecks:60000,returnedKopecks:1000000,remainderKopecks:340000});
-    expect(accountBalance(d,'a')).toBe(500000);expect(totals(d).onHand).toBe(500000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(400000);expect(resaleEarnings(d, today().slice(0,7))).toBe(400000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
+    expect(saleBreakdown(sold)).toMatchObject({profit:500000,investorKopecks:100000,personalProfit:400000,earnedKopecks:60000,returnedKopecks:1060000,remainderKopecks:340000});
+    expect(accountBalance(d,'a')).toBe(560000);expect(totals(d).onHand).toBe(560000);expect(totals(d).assets).toBe(0);expect(totals(d).incomeMonth).toBe(400000);expect(resaleEarnings(d, today().slice(0,7))).toBe(400000);expect(ledger(d).map(i=>i.type)).toEqual(['product-sale','product-purchase']);
+  });
+  it('keeps capital unchanged when buying from capital and returns 1150 for a 1000-to-2000 sale from either source',()=>{
+    const cash={...account,openingKopecks:100000};
+    const bought:ResaleProduct={id:'cap',kind:'Товар',purchaseDate:today(),funding:[{source:'capital',accountId:'a',amountKopecks:100000}],description:'',photos:[],createdAt:today()};
+    const before={...emptyData(),accounts:[cash]};
+    const capitalPurchase={...before,products:[bought]};
+    expect(totals(capitalPurchase)).toMatchObject({remainder:0,assets:100000,totalCapital:100000});
+    const soldCapital={...bought,sale:{priceKopecks:200000,date:today(),accountId:'a'}};
+    expect(saleBreakdown(soldCapital).returnedKopecks).toBe(115000);
+    expect(totals({...before,products:[soldCapital]})).toMatchObject({remainder:115000,assets:0,totalCapital:115000});
+    const pocketProduct={...bought,id:'pocket',funding:[{source:'pocket' as const,accountId:'',amountKopecks:100000}]};
+    const pocketPurchase={...emptyData(),accounts:[{...cash,openingKopecks:0}],products:[pocketProduct]};
+    expect(totals(pocketPurchase)).toMatchObject({remainder:0,assets:100000,totalCapital:100000});
+    const soldPocket={...pocketProduct,sale:{priceKopecks:200000,date:today(),accountId:'a'}};
+    expect(totals({...pocketPurchase,products:[soldPocket]})).toMatchObject({remainder:115000,assets:0,totalCapital:115000});
   });
   it('does not invent earnings at break-even and applies a full loss to cash',()=>{
     const even={...product,sale:{priceKopecks:1000000,date:today(),accountId:'a'}};expect(saleBreakdown(even).earnedKopecks).toBe(0);expect(totals({...emptyData(),accounts:[account],products:[even]}).onHand).toBe(500000);
@@ -92,7 +107,7 @@ describe('resale products and personal income',()=>{
   it('reverses edits, sale cancellation and deletion without duplicate movements',()=>{
     const sold={...product,sale:{priceKopecks:1500000,date:today(),accountId:'a'}};const d={...emptyData(),accounts:[account],products:[sold]};
     const {sale,...unsold}=sold;expect(totals({...d,products:[unsold]}).onHand).toBe(-500000);expect(inventoryValue({...d,products:[unsold]})).toBe(1000000);expect(totals({...d,products:[]}).onHand).toBe(100000);
-    expect(totals({...d,products:[{...sold,sale:{...sold.sale!,priceKopecks:1600000}}]}).onHand).toBe(500000);
+    expect(totals({...d,products:[{...sold,sale:{...sold.sale!,priceKopecks:1600000}}]}).onHand).toBe(572000);
   });
   it('roundtrips products, photos, voice and investor in backups and accepts old backups without products',()=>{
     const rich={...product,photos:['data:image/png;base64,aGVsbG8='],voice:{mimeType:'audio/webm',dataUrl:'data:audio/webm;base64,aGVsbG8=',durationSeconds:2}};const d={...emptyData(),accounts:[account],products:[rich]};expect(parseBackup(serializeBackup(d))).toEqual(d);
@@ -118,7 +133,7 @@ describe('net-profit allocation and capital example',()=>{
     expect(capitalRemainder(bought)).toBe(0);expect(totals(bought).assets).toBe(20000);expect(totals(bought).totalCapital).toBe(20000);
     const sold={...chainsaw,sale:{priceKopecks:50000,date:today(),accountId:'a'}};
     const d={...emptyData(),accounts:[start],products:[sold],incomes:[job]};
-    expect(totals(d).remainder).toBe(35000);expect(totals(d).totalCapital).toBe(35000);expect(totals(d).assets).toBe(0);
+    expect(totals(d).remainder).toBe(39500);expect(totals(d).totalCapital).toBe(39500);expect(totals(d).assets).toBe(0);
     expect(allocations(d)).toEqual({capital:19500,debt:19500,hand:91000,total:130000});
     expect(resaleInventoryValue({...bought,products:[{...chainsaw,investor:{name:'Игорь',amountKopecks:5000,percentBasisPoints:0,terms:''}}]})).toBe(25000);
   });
@@ -126,7 +141,7 @@ describe('net-profit allocation and capital example',()=>{
     const job:Income={...income,id:'job',category:'Шабашки',amountKopecks:100000,date:today()};
     const d={...emptyData(),accounts:[account],incomes:[job],movements:[{id:'m',kind:'expense' as const,title:'Расход',amountKopecks:5000,date:today(),accountId:'a',note:''}],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:1000,date:today(),accountId:'a',note:''}]}]};
     expect(allocations(d)).toEqual({capital:15000,debt:15000,hand:70000,total:100000});
-    expect(totals(d).remainder).toBe(139000);
+    expect(totals(d).remainder).toBe(110000);
   });
   it('computes job net profit after costs',()=>{
     expect(jobNetProfit({...income,category:'Шабашки',amountKopecks:100000,costKopecks:25000})).toBe(75000);
@@ -164,17 +179,17 @@ describe('validated backups',()=>{
   it('rejects prototype-like account kinds and fractional kopecks',()=>{expect(()=>validateData({...emptyData(),accounts:[{...account,kind:'__proto__'}]})).toThrow();expect(()=>validateData({...emptyData(),accounts:[{...account,openingKopecks:1.5}]})).toThrow();});
 });
 
-describe('net capital and free purchases',()=>{
-  it('subtracts only outstanding borrowing once and keeps role accruals and remainder unchanged',()=>{
+describe('debt-independent resale capital and free purchases',()=>{
+  it('keeps debts separate from capital while preserving debt and role summaries',()=>{
     const borrowed:Debt={...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]};
-    const data={...emptyData(),accounts:[account],debts:[borrowed,{...debt,id:'receivable',direction:'owed_to_me' as const}],incomes:[{...income,category:'Шабашки'}]};
-    const t=totals(data);expect(t.remainder).toBe(127500);expect(t.payable).toBe(20000);expect(t.totalCapital).toBe(107500);expect(allocations(data)).toEqual({capital:7500,debt:7500,hand:35000,total:50000});
+    const data={...emptyData(),accounts:[account],debts:[borrowed,{...debt,id:'receivable',direction:'owed_to_me' as const,initialAccountId:'a'}],incomes:[{...income,category:'Шабашки'}]};
+    const t=totals(data);expect(t.remainder).toBe(107500);expect(t.payable).toBe(20000);expect(t.receivable).toBe(30000);expect(t.totalCapital).toBe(107500);expect(allocations(data)).toEqual({capital:7500,debt:7500,hand:35000,total:50000});
     expect(totals({...data,debts:[{...borrowed,payments:[{...borrowed.payments[0],amountKopecks:30000}]},data.debts[1]]}).totalCapital).toBe(107500);
   });
   it('accepts a zero-cost product without funding, changes its label when funded, and sells it normally',()=>{
     const free:ResaleProduct={id:'free',kind:'Подарок',purchaseDate:'2026-11-01',funding:[],description:'',photos:[],createdAt:'2026-11-01'};const data={...emptyData(),accounts:[account],products:[free]};
     expect(validateData(data).products![0].funding).toEqual([]);expect(productCost(free)).toBe(0);expect(totals(data).assets).toBe(0);expect(accountBalance(data,'a')).toBe(100000);expect(ledger(data).find(i=>i.type==='product-purchase')?.subtitle).toContain('Бесплатно');
     const funded={...free,funding:[{source:'pocket' as const,accountId:'',amountKopecks:100}]};expect(productCost(funded)).toBe(100);expect(accountBalance(data,'a')).toBe(100000);
-    const sold={...free,sale:{priceKopecks:10000,date:'2026-11-02',accountId:'a'}};expect(saleBreakdown(sold).returnedKopecks).toBe(0);expect(totals({...data,products:[sold]}).incomeTotal).toBe(10000);
+    const sold={...free,sale:{priceKopecks:10000,date:'2026-11-02',accountId:'a'}};expect(saleBreakdown(sold).returnedKopecks).toBe(1500);expect(totals({...data,products:[sold]}).incomeTotal).toBe(10000);
   });
 });

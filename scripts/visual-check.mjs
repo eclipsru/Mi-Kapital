@@ -238,8 +238,8 @@ try {
   }
   await bottom.getByRole('button', { name: 'Капитал', exact: true }).click();
   await phone.getByRole('heading', { name: 'Мой капитал', exact: true }).waitFor();
-  const debtPosition = await phone.evaluate(() => { const card = document.querySelector('.role-hand'); return card.querySelector('.borrowed-on-hand').compareDocumentPosition(card.querySelector('strong')) & Node.DOCUMENT_POSITION_FOLLOWING; });
-  if (!debtPosition) throw new Error('Borrowed amount must be below the hand label and above its big amount');
+  const debtIsSeparate = await phone.evaluate(() => document.querySelector('.role-hand .borrowed-on-hand') === null);
+  if (!debtIsSeparate) throw new Error('Debt amounts must stay separate from the resale-capital role cards');
   await phone.close();
   if (errors.length) throw new Error(errors.join('\n'));
   console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. Android four-section fixed bottom menu/compact pages; no browser errors or horizontal overflow.');
