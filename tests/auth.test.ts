@@ -32,8 +32,15 @@ function fakeSync() {
   return { sync, saved, signIn };
 }
 describe('account login screen', () => {
+  it('ships with one fixed Supabase project so each install needs only an account login', () => {
+    const config = defaultSyncConfig();
+    expect(config.supabaseUrl).toBe('https://txeasxiblszphfayvyye.supabase.co');
+    expect(config.supabaseKey).toMatch(/^sb_publishable_/);
+  });
   it('saves only cloud configuration and email before signing in; the password is never saved', async () => {
     const { sync, saved, signIn } = fakeSync(); await mount(sync);
+    expect(container!.querySelectorAll('.login-form input')).toHaveLength(2);
+    expect(container!.textContent).not.toContain('URL проекта Supabase');
     await act(async () => { change('Логин · email', 'user@example.com'); change('Пароль', 'correct horse battery'); });
     await act(async () => { (container!.querySelector('.login-submit') as HTMLButtonElement).click(); await Promise.resolve(); });
     expect(saved).toHaveLength(1);

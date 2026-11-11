@@ -33,7 +33,9 @@ export function useSync(data: AppData, ready: boolean, mergeRemote: (data: unkno
     void (async () => {
       try {
         const bridge = desktop();
-        const next = bridge?.syncConfig ? await bridge.syncConfig() : JSON.parse(localStorage.getItem(LOCAL_CONFIG) || 'null') ?? defaultSyncConfig();
+        const defaults = defaultSyncConfig();
+        const saved = bridge?.syncConfig ? await bridge.syncConfig() : JSON.parse(localStorage.getItem(LOCAL_CONFIG) || 'null') ?? {};
+        const next: SyncConfig = { ...defaults, ...saved, supabaseUrl:defaults.supabaseUrl, supabaseKey:defaults.supabaseKey };
         if (!alive.current) return;
         configRef.current = next; setConfig(next); setConfigReady(true);
         if (bridge?.syncInfo) setPcInfo(await bridge.syncInfo());

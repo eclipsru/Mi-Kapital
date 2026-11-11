@@ -1,4 +1,5 @@
 import { emptyData, people, products, workPlans, type AppData } from './model';
+import { SUPABASE_PROJECT_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase-config';
 
 export interface SyncMetadata { device: string; clocks: Record<string, string>; deleted: Record<string, string> }
 export interface SyncEnvelope { data: AppData; revision: number; deviceId: string }
@@ -6,7 +7,7 @@ export type SyncTransport = 'pc' | 'cloud' | 'offline';
 export interface SyncStatus { transport: SyncTransport; state: 'idle' | 'syncing' | 'synced' | 'error'; message: string; lastSyncedAt?: string; pending: boolean }
 export interface SyncConfig { lanEnabled: boolean; lanPort: number; lanToken: string; lanUrl: string; cloudEnabled: boolean; supabaseUrl: string; supabaseKey: string; email: string }
 export function deviceId(): string { const key='mi-kapital.device-id'; let id=localStorage.getItem(key); if(!id){id=crypto.randomUUID();localStorage.setItem(key,id);} return id; }
-export const defaultSyncConfig = (): SyncConfig => ({ lanEnabled: true, lanPort: 47653, lanToken: '', lanUrl: '', cloudEnabled: false, supabaseUrl: '', supabaseKey: '', email: '' });
+export const defaultSyncConfig = (): SyncConfig => ({ lanEnabled: true, lanPort: 47653, lanToken: '', lanUrl: '', cloudEnabled: false, supabaseUrl: SUPABASE_PROJECT_URL, supabaseKey: SUPABASE_PUBLISHABLE_KEY, email: '' });
 const collections = ['accounts', 'incomes', 'debts', 'movements', 'products', 'people', 'workPlans'] as const;
 type Collection = typeof collections[number];
 type RecordWithId = { id: string };
