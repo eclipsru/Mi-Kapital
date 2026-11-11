@@ -46,6 +46,12 @@ export class CloudSync {
     const url = validateCloudConfig(this.config.supabaseUrl, this.config.supabaseKey);
     if (!this.client || this.fingerprint !== `${url}\n${this.config.supabaseKey}`) { await this.close(); this.fingerprint = `${url}\n${this.config.supabaseKey}`; this.client = createClient(url, this.config.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: `mi-kapital-auth-${url}` } }); }
   }
+  async hasSession(): Promise<boolean> {
+    await this.connectClientOnly();
+    const { data, error } = await this.client!.auth.getSession();
+    if (error) throw error;
+    return !!data.session;
+  }
   async signOut() { await this.client?.auth.signOut(); await this.close(); }
   async pull(): Promise<SyncEnvelope | null> {
     if (!this.client || !this.userId) await this.connect();

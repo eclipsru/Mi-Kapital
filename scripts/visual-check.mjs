@@ -14,6 +14,7 @@ const out = path.resolve('artifacts/screenshots');
 fs.mkdirSync(out, { recursive: true });
 const browser = await playwright.launch({ executablePath: await chromium.executablePath(), args: [...chromium.args, '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'], headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+await page.addInitScript(() => { window.__MI_KAPITAL_TEST__ = true; });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const url = process.env.APP_URL || 'http://127.0.0.1:5173';
@@ -220,6 +221,7 @@ try {
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   phone.on('pageerror', error => errors.push(error.message));
   await phone.addInitScript(() => {
+    window.__MI_KAPITAL_TEST__ = true;
     window.desktop = { platform: 'android', info: async () => ({ version: '2.0.37', shellVersion: '2', phase: 'idle', mode: 'files', percent: 0, transferred: 0, total: 0, packaged: true }), checkUpdates: async () => {}, installUpdate: async () => ({ ok: true }), openReleases: async () => {}, onUpdate: () => () => {}, loadData: async () => JSON.parse(localStorage.getItem('mi-kapital.v2.local') || 'null'), saveData: async data => localStorage.setItem('mi-kapital.v2.local', JSON.stringify(data)), exportBackup: async () => true, bootReady: () => {}, syncConfig: async () => ({ lanEnabled: true, lanPort: 47653, lanToken: '', lanUrl: '', cloudEnabled: false, supabaseUrl: '', supabaseKey: '', email: '' }), saveSyncConfig: async () => {}, syncInfo: async () => null, scanPairing: async () => {} };
   });
   await phone.goto(url, { waitUntil: 'networkidle' });

@@ -9,6 +9,7 @@ const LOCAL_CONFIG = 'mi-kapital.sync-settings';
 export function useSync(data: AppData, ready: boolean, mergeRemote: (data: unknown, preferRemote?: boolean) => void, dataRef: React.RefObject<AppData>) {
   const [config, setConfig] = useState<SyncConfig>(defaultSyncConfig);
   const [configReady, setConfigReady] = useState(false);
+  const [authState, setAuthState] = useState<'checking' | 'setup' | 'signed-out' | 'signed-in'>('checking');
   const [status, setStatus] = useState<SyncStatus>({ transport:'offline', state:'idle', message:'Локальное сохранение', pending:false });
   const [pcInfo, setPcInfo] = useState<{ addresses:string[]; port:number; token:string; enabled:boolean; error?:string } | null>(null);
   const cloud = useRef<CloudSync | null>(null);
@@ -36,7 +37,12 @@ export function useSync(data: AppData, ready: boolean, mergeRemote: (data: unkno
         if (!alive.current) return;
         configRef.current = next; setConfig(next); setConfigReady(true);
         if (bridge?.syncInfo) setPcInfo(await bridge.syncInfo());
-      } catch (e) { if (alive.current) { setConfigReady(true); setStatus(s => ({ ...s, state:'error', message:(e as Error).message })); } }
+        if (!next.supabaseUrl || !next.supabaseKey || !next.cloudEnabled) { setAuthState(next.supabaseUrl && next.supabaseKey ? 'signed-out' : 'setup'); return; }
+        const account = new CloudSync(next, id.current);
+        try { await account.connect(); if (alive.current) { setAuthState('signed-in'); void runRef.current(); } }
+        catch { if (alive.current) setAuthState('signed-out'); }
+        finally { await account.close(); }
+      } catch (e) { if (alive.current) { setConfigReady(true); setAuthState('setup'); setStatus(s => ({ ...s, state:'error', message:(e as Error).message })); } }
     })();
     return () => { alive.current = false; void cloud.current?.close(); cloud.current = null; };
   }, []);
@@ -131,11 +137,16 @@ export function useSync(data: AppData, ready: boolean, mergeRemote: (data: unkno
   }, [ready, config.lanUrl, config.lanToken]);
   const signIn = useCallback(async (email: string, password: string, signUp: boolean) => {
     const client = new CloudSync(configRef.current, id.current);
-    try { const message = await client.signIn(email, password, signUp); await saveConfig({ ...configRef.current, email, cloudEnabled:true }); return message; }
-    finally { await client.close(); }
+    try {
+      const message = await client.signIn(email, password, signUp);
+      const authenticated = await client.hasSession();
+      await saveConfig({ ...configRef.current, email, cloudEnabled:authenticated });
+      setAuthState(authenticated ? 'signed-in' : 'signed-out');
+      return message;
+    } finally { await client.close(); }
   }, [saveConfig]);
-  const signOut = useCallback(async () => { await cloud.current?.signOut(); await saveConfig({ ...configRef.current, cloudEnabled:false }); }, [saveConfig]);
+  const signOut = useCallback(async () => { await cloud.current?.signOut(); await saveConfig({ ...configRef.current, cloudEnabled:false }); setAuthState('signed-out'); }, [saveConfig]);
   const syncNow = useCallback(async () => { const result = await run(); if (result?.state === 'error') throw new Error(result.message); }, [run]);
-  return { config, configReady, saveConfig, status, pcInfo, signIn, signOut, syncNow };
+  return { config, configReady, authState, saveConfig, status, pcInfo, signIn, signOut, syncNow };
 }
 export type SyncController = ReturnType<typeof useSync>;

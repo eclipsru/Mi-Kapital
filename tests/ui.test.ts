@@ -7,7 +7,7 @@ import App from '../src/App';
 import { emptyData, lastMonths, money, today, totals, type ResaleProduct } from '../src/core/model';
 import { serializeBackup } from '../src/core/storage';
 let root:Root|undefined;let container:HTMLElement|undefined;
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;(window as any).__MI_KAPITAL_TEST__=true;
 afterEach(()=>{if(root)act(()=>root!.unmount());container?.remove();root=undefined;container=undefined;localStorage.clear();window.location.hash='';delete (window as any).desktop;});
 async function mount(){container=document.createElement('div');document.body.append(container);root=createRoot(container);await act(async()=>{root!.render(createElement(App));});await act(async()=>{await new Promise(r=>setTimeout(r,10));});}
 const button=(text:string)=>[...container!.querySelectorAll('button')].find(b=>b.textContent?.trim()===text) as HTMLButtonElement;

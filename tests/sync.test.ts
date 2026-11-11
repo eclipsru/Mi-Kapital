@@ -13,7 +13,7 @@ import { defaultSyncConfig, mergeData, stampChanges } from '../src/core/sync';
 const require=createRequire(import.meta.url);
 const {createStore}=require('../electron/store.cjs');
 const {createSyncServer}=require('../electron/sync-server.cjs');
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;(window as any).__MI_KAPITAL_TEST__=true;
 const cleanup:(()=>Promise<void>|void)[]=[];
 afterEach(async()=>{for(const fn of cleanup.reverse().splice(0))await fn();(window as any).happyDOM?.setURL('http://localhost/');localStorage.clear();delete (window as any).desktop;window.location.hash='';});
 const account=(id:string,amount:number)=>({id,name:id,kind:'cash' as const,openingKopecks:amount,createdAt:'2026-01-01'});
