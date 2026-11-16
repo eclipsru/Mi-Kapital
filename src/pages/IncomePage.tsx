@@ -12,6 +12,7 @@ const descriptions: Record<IncomeCategory, string> = {
 };
 export function IncomePage({ data, onEdit, onOpenJobs, onOpenResales }: { data: AppData; onEdit: (request: EntryRequest | WorkRequest | ProductRequest) => void; onOpenJobs: () => void; onOpenResales: () => void }) {
   const [month, setMonth] = useState(monthKey(today()));
+  const [chartPeriod, setChartPeriod] = useState<'week' | 'month' | 'year'>('month');
   const [query, setQuery] = useState('');
   const [history, setHistory] = useState(false);
   const [legacyCategory, setLegacyCategory] = useState('all');
@@ -23,6 +24,16 @@ export function IncomePage({ data, onEdit, onOpenJobs, onOpenResales }: { data: 
   const legacyCategories = Array.from(new Set(data.incomes.map(i => i.category).filter(c => !incomeCategories.includes(c as IncomeCategory))));
   const filtered = useMemo(() => data.incomes.filter(i => (!month || monthKey(i.date) === month) && (!query || `${i.title} ${i.category} ${i.note}`.toLowerCase().includes(query.toLowerCase())) && (legacyCategory === 'all' || i.category === legacyCategory)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)), [data.incomes, month, query, legacyCategory]);
   const historyTotal = sum(filtered.map(i => i.amountKopecks));
+  // Seven calendar days, six five-day buckets (last 30 days), or 12 months.
+  const daysPerBucket = chartPeriod === 'month' ? 5 : 1;
+  const chartCount = chartPeriod === 'month' ? 6 : 7;
+  const chartSeries = chartPeriod === 'year' ? monthlySeries(data, 12).map(item => ({ ...item, expense: 0 })) : Array.from({length: chartCount}, (_, i) => {
+    const end = new Date(); end.setHours(12,0,0,0); end.setDate(end.getDate() - (chartCount - 1 - i) * daysPerBucket);
+    const dateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+    const dates = Array.from({length: daysPerBucket}, (_, offset) => { const date = new Date(end); date.setDate(date.getDate() - offset); return dateKey(date); });
+    const income = sum(oddJobIncomes(data).filter(job => dates.includes(job.date)).map(jobNetProfit)) + sum(soldProducts(data).filter(product => dates.includes(product.sale!.date)).map(product => saleBreakdown(product).personalProfit));
+    return { key: dates[dates.length-1] === dates[0] ? dates[0] : `${dates[dates.length-1]} — ${dates[0]}`, income, expense: 0, label: `${String(end.getDate()).padStart(2,'0')}.${String(end.getMonth()+1).padStart(2,'0')}` };
+  });
   const earnings = [
     ...sales.map(p => ({ id: p.id, title: p.kind, date: p.sale!.date, category: 'Перепродажи', amount: saleBreakdown(p).personalProfit, gross: p.sale!.priceKopecks, open: () => onEdit({ type: 'product-sale', item: p }) })),
     ...jobs.map(i => ({ id: i.id, title: i.title, date: i.date, category: 'Шабашки', amount: jobNetProfit(i), gross: i.amountKopecks, open: () => onEdit({ type: 'odd-job', item: i } as WorkRequest) })),
@@ -35,7 +46,7 @@ export function IncomePage({ data, onEdit, onOpenJobs, onOpenResales }: { data: 
     </div>
     <div className="income-top" id="income-details" aria-label="Чистая прибыль">
       <section className="panel income-total"><span className="metric-icon green"><TrendingUp size={23}/></span><span className="metric-label">Чистая прибыль {periodLabel}</span><div className="income-category-breakdown"><div><span>Шабашки</span><strong>{money(jobsIncome)}</strong></div><div><span>Перепродажи</span><strong>{money(resaleIncome)}</strong></div></div><span className="metric-label">Общая прибыль</span><strong>{money(earnedIncome(data, month))}</strong><div className="flex gap-2"><Badge tone="green">После расходов и инвестора</Badge><span className="muted small">Распределение 15/15/70 — в «Моём капитале»</span></div></section>
-      <section className="panel"><SectionHead title="Динамика чистой прибыли"/><Bars series={monthlySeries(data)} label="Динамика чистой прибыли"/></section>
+      <section className="panel"><SectionHead title="Динамика чистой прибыли" action={<select className="inp chart-period-select" aria-label="Период графика прибыли" value={chartPeriod} onChange={e=>setChartPeriod(e.target.value as typeof chartPeriod)}><option value="week">За неделю</option><option value="month">За месяц</option><option value="year">За год</option></select>}/><Bars series={chartSeries} label="Динамика чистой прибыли"/><p className="muted small">{chartPeriod==='week'?'Последние 7 дней, по дням':chartPeriod==='month'?'Последние 30 дней, по 5 дней':'Последние 12 месяцев'}</p></section>
     </div>
     <div className="legacy-income-note"><History size={16}/><span>Прежние поступления сохранены. Без цены покупки они не считаются прибылью новых товаров.</span><button className="text-link orange-link" onClick={() => { setHistory(!history); setQuery(''); setLegacyCategory('all'); }}>{history ? 'Вернуться к доходам' : 'Показать всю историю'}</button></div>
     <section className="panel income-history-panel"><div className="filters"><div className="search-field"><Search size={17}/><input aria-label="Поиск доходов" placeholder={history ? 'Найти прежнее поступление…' : 'Найти продажу или работу…'} value={query} onChange={e => setQuery(e.target.value)}/>{query && <button aria-label="Очистить поиск" onClick={() => setQuery('')}><X size={15}/></button>}</div>{history && <select className="inp" aria-label="Категория дохода" value={legacyCategory} onChange={e => setLegacyCategory(e.target.value)}><option value="all">Все категории</option>{incomeCategories.map(c => <option key={c}>{c}</option>)}{legacyCategories.map(c => <option key={c}>{c}</option>)}</select>}<div className="month-select"><CalendarDays size={16}/><select className="inp" aria-label="Месяц доходов" value={month} onChange={e => setMonth(e.target.value)}><option value="">За всё время</option>{months.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}</select></div></div>

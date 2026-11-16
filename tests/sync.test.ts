@@ -10,6 +10,7 @@ import http from 'node:http';
 import App from '../src/App';
 import { emptyData, totals, type AppData } from '../src/core/model';
 import { defaultSyncConfig, mergeData, sameData, stampChanges } from '../src/core/sync';
+import { parseBackup, serializeBackup, validateData } from '../src/core/storage';
 const require=createRequire(import.meta.url);
 const {createStore}=require('../electron/store.cjs');
 const {createSyncServer}=require('../electron/sync-server.cjs');
@@ -20,6 +21,11 @@ const account=(id:string,amount:number)=>({id,name:id,kind:'cash' as const,openi
 const flush=async()=>{await act(async()=>{await new Promise(r=>setTimeout(r,80));});};
 async function until(fn:()=>boolean){for(let i=0;i<40;i++){await flush();if(fn())return;}throw new Error('Sync did not converge: '+(document.querySelector('.sync-pill')?.getAttribute('title')||'')+' '+document.body.textContent);}
 describe('record-level sync',()=>{
+  it('keeps expense categories during sync and backup, while accepting older uncategorized expenses',()=>{
+    const old={...emptyData(),accounts:[account('a',10000)],movements:[{id:'old',kind:'expense' as const,title:'Старый расход',amountKopecks:100,date:'2026-01-01',accountId:'a',note:''}]};
+    const next=stampChanges(old,{...old,movements:[...old.movements,{id:'new',kind:'expense' as const,title:'Продукты',category:'Еда',amountKopecks:200,date:'2026-01-01',accountId:'a',note:''}]},'phone',1000);
+    const merged=validateData(mergeData(old,next));expect(merged.movements.find(m=>m.id==='new')?.category).toBe('Еда');expect(merged.movements.find(m=>m.id==='old')?.category).toBeUndefined();expect(parseBackup(serializeBackup(merged)).movements).toEqual(merged.movements);
+  });
   it('keeps newer phone edits, unions offline records and honors deletion tombstones',()=>{
     const base={...emptyData(),accounts:[account('a',100)]};
     const pc=stampChanges(base,{...base,accounts:[account('a',200)]},'pc',1000);

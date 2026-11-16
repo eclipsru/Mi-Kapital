@@ -137,7 +137,8 @@ try {
   const mediaSaved = await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('mi-kapital.v2.local')).products.at(-1); return p.kind === 'Тестовый товар' && p.photos.length === 1 && p.voice.dataUrl.startsWith('data:audio/webm;base64,') && p.funding.some(f => f.source === 'pocket' && f.amountKopecks === 5000 && f.accountId === ''); });
   if (!mediaSaved) throw new Error('Product photo/voice did not persist through the real form');
 
-  await page.getByRole('button', { name: 'Продать', exact: true }).first().click();
+  await page.locator('.product-card-open').first().click();
+  await page.getByRole('button', { name: 'Продать', exact: true }).click();
   await page.getByRole('dialog').waitFor();
   await page.getByLabel('Цена продажи, ₽').fill('25000');
   await shot('09-sale-form');

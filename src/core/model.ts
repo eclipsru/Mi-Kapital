@@ -9,7 +9,7 @@ export interface Person { id: string; name: string; createdAt: string }
 export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote; work?: WorkDetails; costKopecks?: number }
 export interface Payment { id: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote }
 export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; voice?: VoiceNote; kind?: DebtKind; initialAccountId: string | null; payments: Payment[] }
-export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote }
+export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string; category?: string; voice?: VoiceNote }
 export interface Plan { income: number; expenses: number; debtPayment: number; months: number; goal: number }
 export interface WorkPlan { id: string; kind: WorkKind; title: string; date: string; expectedKopecks: number; note: string; voice?: VoiceNote; createdAt: string; values?: Record<string, string> }
 export type FundingSource = 'capital' | 'pocket';
