@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check } from 'lucide-react';
-import { accountBalance, debtRemaining, inputMoney, money, parseMoney, roleAccount, today, uid, validDate, type AppData, type Debt, type Payment } from '../core/model';
+import { accountBalance, accountRoles, roleBalance, debtRemaining, inputMoney, money, parseMoney, roleAccount, today, uid, validDate, type AppData, type Debt, type Payment } from '../core/model';
 import { Button, Field, Modal } from './ui';
 import { VoiceField } from './VoiceField';
 import type { VoiceNote } from '../core/model';
@@ -66,12 +66,12 @@ export function RepaymentModal({ request, data, onClose, onSave }: { request: Re
       <Field label="Какой долг погасить"><select className="inp" required value={debtId} onChange={e => setDebtId(e.target.value)}>{!open.length && <option value="">Нет открытых долгов</option>}{open.map(d => <option key={d.id} value={d.id}>{d.title} · {d.counterparty} · остаток {money(debtRemaining(d))}</option>)}</select></Field>
       {selected && <div className="form-note"><Check size={16}/><span>Остаток выбранного долга: {money(debtRemaining(selected))}. Все списания будут добавлены только в этот долг.</span></div>}
       <Field label="Дата"><input className="inp" type="date" required min="1900-01-01" max="2200-12-31" value={date} onChange={e => setDate(e.target.value)}/></Field>
-      <fieldset className="funding-fieldset repayment-accounts"><legend>Счета списания · можно несколько</legend><p className="field-hint">Отметьте счета и укажите сумму для каждого. В истории появится отдельное списание на каждый счёт.</p>
+      <fieldset className="funding-fieldset repayment-accounts"><legend>Счета списания · можно несколько</legend><p className="field-hint">Отметьте счета и укажите сумму для каждого. Суммы назначенных ролей совпадают с карточками на главной. Если счёт без роли, назначьте её на главной странице.</p>
         {!data.accounts.length && <p className="form-error">Сначала создайте счёт в разделе «Мой капитал».</p>}
         {data.accounts.map(account => {
           const row = debits.find(d => d.accountId === account.id);
           return <div className={`repayment-account ${row ? 'selected' : ''}`} key={account.id}>
-            <label className="checkbox-label"><input type="checkbox" aria-label={`Списать со счёта ${account.name}`} checked={!!row} onChange={e => toggleAccount(account.id, e.target.checked)}/><span>{account.name}<small>На счёте: {money(accountBalance(data, account.id))}</small></span></label>
+            <label className="checkbox-label"><input type="checkbox" aria-label={`Списать со счёта ${account.name}`} checked={!!row} onChange={e => toggleAccount(account.id, e.target.checked)}/><span>{account.name}<small>{account.role ? `${accountRoles[account.role]}: ${money(roleBalance(data, account.role))}` : `Счёт без роли: ${money(accountBalance(data, account.id))}`}</small></span></label>
             {row && <input className="inp money-input" aria-label={`Сумма со счёта ${account.name}`} inputMode="decimal" placeholder="0,00" value={row.amount} onChange={e => setDebits(rows => rows.map(d => d.accountId === account.id ? { ...d, amount: e.target.value } : d))}/>}
           </div>;
         })}

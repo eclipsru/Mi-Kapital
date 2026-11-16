@@ -93,7 +93,7 @@ describe('real HTTP PC ↔ Android synchronization',()=>{
     const field=(label:string)=>[...container.querySelectorAll('label')].find(l=>l.querySelector('.field-label')?.textContent===label)!.querySelector('input') as HTMLInputElement;
     const set=async(label:string,value:string)=>{const el=field(label);await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(el,value);el.dispatchEvent(new Event('input',{bubbles:true}));});};
     await set('Название','Расход с телефона');await set('Сумма, ₽','23,45');await act(async()=>{(container.querySelector('.modal button[type="submit"]') as HTMLButtonElement).click();});
-    await until(()=>store.load().movements.length===1);expect(totals(store.load()).totalCapital).toBe(10000);expect(remote).not.toBeNull();
+    await until(()=>store.load().movements.length===1);expect(totals(store.load()).totalCapital).toBe(12345);expect(remote).not.toBeNull();
     // Add a debt on the phone; the PC's saved database changes without a page refresh.
     await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Долги')!.click();});
     await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Добавить долг')!.click();});
@@ -101,7 +101,7 @@ describe('real HTTP PC ↔ Android synchronization',()=>{
     const select=container.querySelector('select[aria-label="Кому вы должны"]') as HTMLSelectElement;
     await act(async()=>{Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value')!.set!.call(select,'Алексей');select.dispatchEvent(new Event('change',{bubbles:true}));});
     await act(async()=>{(container.querySelector('.modal button[type="submit"]') as HTMLButtonElement).click();});
-    await until(()=>store.load().debts.some((d:any)=>d.title==='Долг с телефона'));
+    await until(()=>store.load().debts.some((d:any)=>d.title==='Долг с телефона'));expect(store.load().debts.find((d:any)=>d.title==='Долг с телефона').loanReceipt).toBe('cash');
     // An edit made and saved on the PC is pushed to the still-open phone via SSE.
     const beforePc=store.load();const pcDebt={id:'pc-debt',title:'Долг с ПК',counterparty:'Алексей',direction:'i_owe' as const,principalKopecks:80000,date:'2026-11-01',dueDate:'',note:'',initialAccountId:null,payments:[]};
     await act(async()=>{await store.save(stampChanges(beforePc,{...beforePc,debts:[...beforePc.debts,pcDebt]},'pc-ui',Date.now()));server.changed();});
@@ -113,9 +113,9 @@ describe('real HTTP PC ↔ Android synchronization',()=>{
     const response=await fetch(`${base}/sync/pull`,{headers:{Authorization:'Bearer '+token}});const envelope=await response.json();
     const next=stampChanges(envelope.data,{...envelope.data,accounts:[...envelope.data.accounts,account('pc-added',50000)]},'pc-http',Date.now());
     const push=await act(async()=>fetch(`${base}/sync/push`,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({revision:envelope.revision,deviceId:'pc-http',data:next})}));expect(push.status).toBe(200);
-    await until(()=>phoneData!.accounts.length===2);expect(totals(phoneData!).totalCapital).toBe(60000);expect(totals(store.load()).totalCapital).toBe(60000);
+    await until(()=>phoneData!.accounts.length===2);expect(totals(phoneData!).totalCapital).toBe(62345);expect(totals(store.load()).totalCapital).toBe(62345);
     const conflict=await act(async()=>fetch(`${base}/sync/push`,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({revision:envelope.revision,deviceId:'stale',data:next})}));expect(conflict.status).toBe(409);
     const unauthorized=await act(async()=>fetch(`${base}/sync/pull`,{headers:{Authorization:'Bearer wrong'}}));expect(unauthorized.status).toBe(401);
-    await act(async()=>{root!.unmount();});root=createRoot(container);await act(async()=>{root!.render(createElement(App));});await until(()=>container.querySelector('.balance-amount')?.textContent?.includes('600')??false);expect(phoneData!.movements).toHaveLength(1);expect(store.load().movements).toHaveLength(1);
+    await act(async()=>{root!.unmount();});root=createRoot(container);await act(async()=>{root!.render(createElement(App));});await until(()=>container.querySelector('.balance-amount')?.textContent?.includes('623')??false);expect(phoneData!.movements).toHaveLength(1);expect(store.load().movements).toHaveLength(1);
   });
 });

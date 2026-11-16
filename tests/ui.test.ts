@@ -38,11 +38,11 @@ describe('real React UI flows',()=>{
     await click('Мой капитал');await click('Товар');expect(window.location.hash).toBe('#resales');await click('Добавить товар');await input('Вид товара','Телефон');await input('Сумма из капитала, ₽','1000');await check('Есть инвестор');await input('Инвестор','Алексей');await input('Сумма инвестора, ₽','300');await input('% от чистой прибыли','20');await input('Описание','Проверен');await submitModal();
     expect(saved().products[0]).toMatchObject({kind:'Телефон',funding:[{source:'capital',amountKopecks:100000}],investor:{name:'Алексей',percentBasisPoints:2000}});
     await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.summary-stack')?.textContent).toContain(money(50));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(100000));
-    await click('Долги');await click('Добавить долг');await input('Название','Заём');await input('Кому вы должны','Алексей');await input('Изначальная сумма, ₽','300');await input('Движение денег при создании','');await submitModal();await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.debt-strip')?.textContent).toContain(money(30000));expect(roleCard('hand')).not.toContain('Взял в долг');
+    await click('Долги');await click('Добавить долг');await input('Название','Заём');await input('Кому вы должны','Алексей');await input('Изначальная сумма, ₽','300');await submitModal();await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.debt-strip')?.textContent).toContain(money(30000));expect(roleCard('hand')).not.toContain('Взял в долг');
     await click('Доходы');await openResales();await productAction('Продать');await input('Цена продажи, ₽','1500');expect(container!.querySelector('.sale-preview')?.textContent).toContain(money(40000));await submitModal();expect(saved().products[0].sale.priceKopecks).toBe(150000);
     await click('Мой капитал');expect(cashText()).toBe(money(106050));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(0));expect(roleCard('capital')).toContain(money(6000));
-    await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(86050));expect(roleCard('capital')).toContain(money(6000));
-    await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(86050));expect(container!.textContent).toContain('Погашение: Заём');
+    await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(106050));expect(roleCard('capital')).toContain(money(-14000));
+    await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(106050));expect(container!.textContent).toContain('Погашение: Заём');
   });
   it('opens both income directions as separate pages and counts net profit, not 15%',async()=>{
     const previous=`${lastMonths(2)[0]}-05`.slice(0,7);seedIncome();await mount();
@@ -108,6 +108,20 @@ describe('real React UI flows',()=>{
   });
   it('imports a validated backup with products only after explicit confirmation',async()=>{
     await mount();await click('Данные и настройки');const data={...emptyData(),accounts:[{id:'a',name:'Из копии',kind:'cash' as const,openingKopecks:12345,createdAt:'2026-01-01'}],products:[product]};const file=new File([serializeBackup(data)],'backup.json',{type:'application/json'});const el=container!.querySelector('input[type="file"]') as HTMLInputElement;Object.defineProperty(el,'files',{value:[file]});await act(async()=>el.dispatchEvent(new Event('change',{bubbles:true})));expect(container!.textContent).toContain('Заменить текущие данные');expect(container!.textContent).toContain('1 товаров');await click('Импортировать');expect(saved().accounts[0].name).toBe('Из копии');expect(saved().products[0].kind).toBe('Телефон');
+  });
+});
+
+describe('new loan mode and role balances',()=>{
+  it('preserves legacy loans, creates cash and goods loans and shows matching repayment amounts',async()=>{
+    const createdAt=new Date().toISOString();const old={id:'old',title:'Старый долг',counterparty:'Друг',direction:'i_owe',principalKopecks:20000,date:today(),dueDate:'',note:'',initialAccountId:null,payments:[]};
+    localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'c',name:'Капитал',kind:'cash',openingKopecks:100000,role:'capital',createdAt},{id:'h',name:'Руки',kind:'cash',openingKopecks:0,role:'hand',createdAt},{id:'d',name:'На долги',kind:'cash',openingKopecks:0,role:'debt',createdAt}],people:[{id:'p',name:'Друг',createdAt}],debts:[old]}));
+    await mount();const originalCash=cashText();expect(roleCard('hand')).toContain(money(0));
+    await click('Долги');await clickSelector('.person-debt-card');await click('Старый долг');expect(container!.textContent).toContain('Старый долг не прибавляется');await submitModal();expect(saved().debts[0].loanReceipt).toBeUndefined();await click('← Все люди');
+    await click('Добавить долг');await input('Название','В долг деньгами');await input('Кому вы должны','Друг');await input('Изначальная сумма, ₽','300');await submitModal();expect(saved().debts.find((d:any)=>d.title==='В долг деньгами')).toMatchObject({loanReceipt:'cash',initialAccountId:'h'});
+    await click('Добавить долг');await input('Название','В долг товаром');await input('Кому вы должны','Друг');await input('Изначальная сумма, ₽','500');await check('Взял товаром');await submitModal();expect(saved().debts.find((d:any)=>d.title==='В долг товаром')).toMatchObject({loanReceipt:'goods',initialAccountId:null});expect(saved().products).toEqual([]);
+    await click('Мой капитал');expect(roleCard('hand')).toContain(money(30000));expect(cashText()).toBe(originalCash);
+    await click('Расходы');await click('Добавить расход');await input('Название','Расход');await input('Сумма, ₽','25');expect((container!.querySelector('.modal label select') as HTMLSelectElement)?.value).not.toBe('h');const accountSelect=[...container!.querySelectorAll('label')].find(l=>l.querySelector('.field-label')?.textContent==='Счёт')!.querySelector('select')!;expect(accountSelect.value).toBe('h');await submitModal();await click('Мой капитал');expect(roleCard('hand')).toContain(money(27500));expect(cashText()).toBe(originalCash);
+    await click('Долги');await click('Отдать');const row=[...container!.querySelectorAll('.repayment-account')].find(e=>e.textContent?.includes('Руки'))!;expect(row.textContent).toContain(money(27500));
   });
 });
 

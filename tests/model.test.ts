@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountBalance, accountReferenced, allocations, calculatePlan, capitalRemainder, cleanWorkValues, debtRemaining, emptyData, formatDuration, incomeCategories, incomeCategoryOptions, jobNetProfit, lastMonths, ledger, money, oddJobIncomes, parseMoney, people, productStatus, profitAllocation, resaleInventoryValue, statusDurations, suggestPlan, today, totals, shareKopecks, parsePercent, saleBreakdown, productCost, inventoryValue, earnedIncome, resaleEarnings, jobEarnings, products, validDate, workKindFields, workKinds, workPlans, workTitle, type Account, type Debt, type Income, type WorkPlan, type ResaleProduct } from '../src/core/model';
+import { accountBalance, accountReferenced, allocations, roleBalance, calculatePlan, capitalRemainder, cleanWorkValues, debtRemaining, emptyData, formatDuration, incomeCategories, incomeCategoryOptions, jobNetProfit, lastMonths, ledger, money, oddJobIncomes, parseMoney, people, productStatus, profitAllocation, resaleInventoryValue, statusDurations, suggestPlan, today, totals, shareKopecks, parsePercent, saleBreakdown, productCost, inventoryValue, earnedIncome, resaleEarnings, jobEarnings, products, validDate, workKindFields, workKinds, workPlans, workTitle, type Account, type Debt, type Income, type WorkPlan, type ResaleProduct } from '../src/core/model';
 import { parseBackup, serializeBackup, validateData } from '../src/core/storage';
 const account:Account={id:'a',name:'Карта',kind:'bank',openingKopecks:100000,createdAt:'2026-01-01'};
 const income:Income={id:'i',title:'Зарплата',category:'Зарплата',amountKopecks:50000,accountId:'a',date:'2026-11-01',note:''};
@@ -12,7 +12,7 @@ describe('integer money and dates',()=>{
 });
 describe('coherent capital accounting',()=>{
   it('counts income exactly once in account and net capital',()=>{const d={...emptyData(),accounts:[account],incomes:[income]};expect(accountBalance(d,'a')).toBe(150000);expect(totals(d).onHand).toBe(150000);expect(totals(d).incomeTotal).toBe(0);});
-  it('subtracts expenses and applies signed corrections',()=>{const d={...emptyData(),accounts:[account],movements:[{id:'m',kind:'expense' as const,title:'Покупка',amountKopecks:20000,date:'2026-11-01',accountId:'a',note:''},{id:'m2',kind:'adjustment' as const,title:'Курсовая разница',amountKopecks:-500,date:'2026-11-01',accountId:'a',note:''}]};expect(totals(d).onHand).toBe(79500);});
+  it('excludes expenses from resale capital and applies signed corrections',()=>{const d={...emptyData(),accounts:[account],movements:[{id:'m',kind:'expense' as const,title:'Покупка',amountKopecks:20000,date:'2026-11-01',accountId:'a',note:''},{id:'m2',kind:'adjustment' as const,title:'Курсовая разница',amountKopecks:-500,date:'2026-11-01',accountId:'a',note:''}]};expect(totals(d).onHand).toBe(99500);expect(accountBalance(d,'a')).toBe(79500);});
   it('keeps debt transactions out of resale capital while preserving the real account balance',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a'}]};expect(accountBalance(d,'a')).toBe(130000);expect(totals(d).onHand).toBe(100000);expect(totals(d).totalCapital).toBe(100000);expect(totals(d).payable).toBe(30000);});
   it('does not change resale capital when a debt payment is recorded',()=>{const d={...emptyData(),accounts:[account],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:10000,date:'2026-11-02',accountId:'a',note:''}]}]};expect(accountBalance(d,'a')).toBe(120000);expect(debtRemaining(d.debts[0])).toBe(20000);expect(totals(d).onHand).toBe(100000);});
   it('excludes a pre-existing debt principal from on-hand money',()=>{const d={...emptyData(),accounts:[account],debts:[debt]};expect(totals(d).onHand).toBe(100000);expect(totals(d).payable).toBe(30000);expect(accountBalance(d,'a')).toBe(100000);});
@@ -141,13 +141,32 @@ describe('net-profit allocation and capital example',()=>{
     const job:Income={...income,id:'job',category:'Шабашки',amountKopecks:100000,date:today()};
     const d={...emptyData(),accounts:[account],incomes:[job],movements:[{id:'m',kind:'expense' as const,title:'Расход',amountKopecks:5000,date:today(),accountId:'a',note:''}],debts:[{...debt,initialAccountId:'a',payments:[{id:'p',amountKopecks:1000,date:today(),accountId:'a',note:''}]}]};
     expect(allocations(d)).toEqual({capital:15000,debt:15000,hand:70000,total:100000});
-    expect(totals(d).remainder).toBe(110000);
+    expect(totals(d).remainder).toBe(115000);
   });
   it('computes job net profit after costs',()=>{
     expect(jobNetProfit({...income,category:'Шабашки',amountKopecks:100000,costKopecks:25000})).toBe(75000);
     expect(jobNetProfit({...income,category:'Шабашки',amountKopecks:100000})).toBe(100000);
   });
 });
+describe('expense- and debt-free resale capital and spendable role balances',()=>{
+  it('keeps old debts out of hands, adds only marked cash debt, not goods, and excludes expenses from capital',()=>{
+    const hands={...account,id:'h',role:'hand' as const};const capital={...account,id:'c',role:'capital' as const};const debtAccount={...account,id:'r',role:'debt' as const};
+    const job={...income,id:'job',category:'Шабашки',amountKopecks:100000,accountId:'h',date:today()};
+    const old={...debt,id:'old',initialAccountId:null};const cash={...debt,id:'cash',initialAccountId:'h',loanReceipt:'cash' as const};const goods={...debt,id:'goods',initialAccountId:null,loanReceipt:'goods' as const};
+    const base={...emptyData(),accounts:[hands,capital,debtAccount],incomes:[job],debts:[old]};
+    expect(roleBalance(base,'hand')).toBe(70000);
+    const added={...base,debts:[old,cash,goods]};expect(roleBalance(added,'hand')).toBe(100000);expect(totals(added).remainder).toBe(totals(base).remainder);expect(totals(added).assets).toBe(0);
+    const spent={...added,movements:[{id:'m',kind:'expense' as const,title:'Трата',amountKopecks:12000,date:today(),accountId:'h',note:''}],debts:[old,{...cash,payments:[{id:'p',amountKopecks:3000,date:today(),accountId:'h',note:''}]},goods]};
+    expect(roleBalance(spent,'hand')).toBe(85000);expect(roleBalance(spent,'capital')).toBe(15000);expect(roleBalance(spent,'debt')).toBe(15000);expect(totals(spent).remainder).toBe(totals(base).remainder);expect(totals(spent).totalCapital).toBe(totals(base).totalCapital);
+    expect(parseBackup(serializeBackup(spent)).debts.find(x=>x.id==='cash')?.loanReceipt).toBe('cash');
+  });
+  it('deducts expenses and repayments from the assigned role only, including multiple accounts',()=>{
+    const accounts=[{...account,id:'h',role:'hand' as const},{...account,id:'c',role:'capital' as const},{...account,id:'r',role:'debt' as const}];
+    const d={...emptyData(),accounts,incomes:[{...income,category:'Шабашки',amountKopecks:100000,accountId:'h'}],movements:[{id:'m',kind:'expense' as const,title:'Трата',amountKopecks:2000,date:today(),accountId:'c',note:''}],debts:[{...debt,payments:[{id:'p',amountKopecks:3000,date:today(),accountId:'r',note:''}]}]};
+    expect(roleBalance(d,'capital')).toBe(13000);expect(roleBalance(d,'debt')).toBe(12000);expect(roleBalance(d,'hand')).toBe(70000);expect(totals(d).remainder).toBe(totals({...d,movements:[],debts:[]}).remainder);
+  });
+});
+
 describe('people, roles and product status',()=>{
   it('roundtrips people and rejects duplicate names or duplicate account roles',()=>{
     const person={id:'p1',name:'Алексей',createdAt:new Date().toISOString()};

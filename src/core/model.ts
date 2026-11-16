@@ -8,7 +8,7 @@ export interface Account { id: string; name: string; kind: AccountKind; openingK
 export interface Person { id: string; name: string; createdAt: string }
 export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote; work?: WorkDetails; costKopecks?: number }
 export interface Payment { id: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote }
-export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; voice?: VoiceNote; kind?: DebtKind; initialAccountId: string | null; payments: Payment[] }
+export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; voice?: VoiceNote; kind?: DebtKind; loanReceipt?: 'cash' | 'goods'; initialAccountId: string | null; payments: Payment[] }
 export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string; category?: string; voice?: VoiceNote }
 export interface Plan { income: number; expenses: number; debtPayment: number; months: number; goal: number }
 export interface WorkPlan { id: string; kind: WorkKind; title: string; date: string; expectedKopecks: number; note: string; voice?: VoiceNote; createdAt: string; values?: Record<string, string> }
@@ -32,7 +32,7 @@ export const productKinds = ['Телефон', 'Ноутбук', 'Комплек
 export const fundingLabels: Record<FundingSource, string> = { capital: 'Капитал', pocket: 'Из кармана' };
 export const products = (data: AppData): ResaleProduct[] => data.products ?? [];
 export const people = (data: AppData): Person[] => data.people ?? [];
-export const accountRoles: Record<AccountRole, string> = { capital: 'Капитал · 15%', hand: 'На руки · 70%', debt: 'На долги · 15%' };
+export const accountRoles: Record<AccountRole, string> = { capital: 'Капитал · 15%', hand: 'Руки · 70%', debt: 'На долги · 15%' };
 export const accountRoleOrder: AccountRole[] = ['capital', 'hand', 'debt'];
 export const productStatusLabels: Record<ProductStatus | 'sold', string> = { preparing: 'На подготовке', listed: 'На продаже', sold: 'Продан' };
 export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
@@ -91,13 +91,26 @@ export function allocations(data: AppData, month = ''): ProfitAllocation {
   ];
   return events.reduce((total, profit) => { const a = profitAllocation(profit); return { capital: total.capital + a.capital, debt: total.debt + a.debt, hand: total.hand + a.hand, total: total.total + a.total }; }, { capital: 0, debt: 0, hand: 0, total: 0 });
 }
+// Role cards start with the user's 15/70/15 profit allocation. Spending is
+// attributed only to a deliberately assigned account; old loan principals are
+// never reclassified as cash. New loans explicitly marked as cash credit Hands.
+export function roleBalance(data: AppData, role: AccountRole): number {
+  let balance = allocations(data)[role];
+  const account = roleAccount(data, role);
+  if (account) {
+    balance -= sum(data.movements.filter(m => m.kind === 'expense' && m.accountId === account.id).map(m => m.amountKopecks));
+    for (const debt of data.debts) for (const payment of debt.payments) if (payment.accountId === account.id) balance += debt.direction === 'i_owe' ? -payment.amountKopecks : payment.amountKopecks;
+  }
+  if (role === 'hand') balance += sum(data.debts.filter(d => d.direction === 'i_owe' && d.loanReceipt === 'cash').map(d => d.principalKopecks));
+  return balance;
+}
 export function returnedPrincipal(product: ResaleProduct): number {
   if (!product.sale) return 0;
   const cost = productCost(product);
   return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
 }
 // Остаток капитала для перепродаж: деньги на счетах без полной выручки шабашек,
-// но с 15% чистой прибыли шабашек. Долговые поступления и платежи не влияют на этот показатель.
+// но с 15% чистой прибыли шабашек. Долговые поступления, платежи и расходы не влияют на этот показатель.
 // Покупки уменьшают остаток только на сумму из источника «Капитал»; продажа возвращает цену товара + 15% чистой прибыли.
 export function capitalRemainder(data: AppData): number {
   const liquidIds = new Set(liquidAccounts(data).map(a => a.id));
@@ -115,7 +128,8 @@ export function capitalRemainder(data: AppData): number {
   const jobs = oddJobIncomes(data).filter(i => liquidIds.has(i.accountId));
   const jobReceipts = sum(jobs.map(i => i.amountKopecks));
   const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
-  return liquid - debtCashEffects - jobReceipts + jobCapital;
+  const expenseEffects = sum(data.movements.filter(m => m.kind === 'expense' && liquidIds.has(m.accountId)).map(m => m.amountKopecks));
+  return liquid - debtCashEffects - jobReceipts + jobCapital + expenseEffects;
 }
 export interface StatusDurations { preparingMs: number; listedMs: number; soldMs: number }
 export function statusDurations(product: ResaleProduct, now = Date.now()): StatusDurations {
