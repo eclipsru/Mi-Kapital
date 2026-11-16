@@ -27,6 +27,16 @@ public class WidgetDataTest {
     product.getJSONObject("sale").put("priceKopecks",80000);
     assertEquals(120000,WidgetData.calculate(d).total);
   }
+  @Test public void capitalExpenseAndPartialRepaymentMatchApp() throws Exception {
+    JSONObject d=data();
+    d.getJSONArray("movements").put(new JSONObject("{\"id\":\"e\",\"accountId\":\"a\",\"kind\":\"expense\",\"capitalDebt\":true,\"amountKopecks\":20000}"));
+    JSONObject debt=new JSONObject("{\"capitalExpenseId\":\"e\",\"direction\":\"i_owe\",\"principalKopecks\":20000,\"payments\":[]}");
+    d.getJSONArray("debts").put(debt);
+    assertEquals(80000,WidgetData.calculate(d).total);
+    debt.getJSONArray("payments").put(new JSONObject("{\"amountKopecks\":5000,\"accountId\":\"h\"}"));
+    assertEquals(85000,WidgetData.calculate(d).total);
+    assertEquals(15000,WidgetData.calculate(d).payable);
+  }
   @Test public void jobsUseNetProfitShareAndAdjustmentsRemain() throws Exception {
     JSONObject d=data();
     d.getJSONArray("incomes").put(new JSONObject("{\"accountId\":\"a\",\"category\":\"Шабашки\",\"amountKopecks\":10000,\"costKopecks\":4000}"));

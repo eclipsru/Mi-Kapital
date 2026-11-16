@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
-import { accountReferenced, accountKinds, accountRoles, accountRoleOrder, incomeCategories, incomeCategoryOptions, debtPaid, roleAccount, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AccountRole, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment, type Person, products } from '../core/model';
+import { capitalExpense, saveMovement, removeMovement, accountReferenced, accountKinds, accountRoles, accountRoleOrder, incomeCategories, incomeCategoryOptions, debtPaid, roleAccount, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AccountRole, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment, type Person, products } from '../core/model';
 import { Button, Field, FormFrame } from './ui';
 import { VoiceField } from './VoiceField';
 import { people, type DebtKind, type VoiceNote } from '../core/model';
@@ -54,8 +54,9 @@ export function EntryModal({ request, data, onClose, onSave, onDelete, inline = 
     } else if (request.type === 'movement') {
       if (newCategory && !expenseCategory.trim()) return setError('Введите название категории.');
       const movement: Movement = { ...common, id:request.item?.id ?? uid(), kind:movementKind, ...(movementKind === 'expense' && expenseCategory.trim() ? { category: expenseCategory.trim().slice(0,80) } : {}) };
-      onSave({ ...data, movements:editing ? data.movements.map(m=>m.id===movement.id?movement:m) : [...data.movements,movement] }, movementKind === 'expense' ? 'Расход сохранён и учтён по выбранному счёту.' : 'Корректировка сохранена.');
+      try { onSave(saveMovement(data, movement, fromCapital), fromCapital ? 'Расход сохранён. Создан или обновлён долг в капитал.' : 'Операция сохранена.'); } catch (e) { return setError((e as Error).message); }
     } else if (request.type === 'debt') {
+      if (request.item?.capitalExpenseId) return setError('Этот долг связан с расходом. Изменяйте исходный расход, а возвраты — через «Отдать».');
       if (!counterparty.trim()) return setError('Выберите человека из списка.');
       const knownPerson = people(data).some(p => p.name.trim().toLowerCase() === counterparty.trim().toLowerCase());
       if (!knownPerson && request.item?.counterparty !== counterparty && !addingPerson) return setError('Выберите человека или добавьте нового.');
@@ -71,6 +72,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete, inline = 
         const old = request.item!.amountKopecks;
         if (value > request.debt.principalKopecks - debtPaid(request.debt) + old) return setError('Платёж больше остатка долга. Уменьшите сумму.');
       } else if (value > request.debt.principalKopecks - debtPaid(request.debt)) return setError('Платёж больше остатка долга. Уменьшите сумму.');
+      if (request.debt.capitalExpenseId && (capitalExpense(data, request.debt)?.accountId === accountId || roleAccount(data, 'capital')?.id === accountId)) return setError('Возврат в капитал нужно списать с другого счёта, не с самого капитала.');
       const payment: Payment = { id:request.item?.id ?? uid(), amountKopecks:value, date, accountId, note:common.note, ...(voice ? { voice } : {}) };
       const payments = editing ? request.debt.payments.map(p=>p.id===payment.id?payment:p) : [...request.debt.payments,payment];
       onSave({ ...data, debts:data.debts.map(d=>d.id===request.debt.id?{...d,payments}:d) }, 'Платёж сохранён. Долг и остаток счёта пересчитаны.');
@@ -84,11 +86,13 @@ export function EntryModal({ request, data, onClose, onSave, onDelete, inline = 
       if (referenced) return setError('На счёт ссылаются операции. Сначала измените или удалите их — так история останется согласованной.');
       onDelete({...data,accounts:data.accounts.filter(a=>a.id!==item.id)},'Счёт удалён');
     } else if (request.type === 'income') onDelete({...data,incomes:data.incomes.filter(i=>i.id!==item.id)},'Доход удалён. Остаток счёта пересчитан.');
-    else if (request.type === 'movement') onDelete({...data,movements:data.movements.filter(m=>m.id!==item.id)},'Операция удалена');
+    else if (request.type === 'movement') { try { onDelete(removeMovement(data,item.id),'Расход и связанный долг удалены'); } catch (e) { return setError((e as Error).message); } }
+    else if (request.type === 'debt' && request.item?.capitalExpenseId) return setError('Удалите исходный расход, предварительно отменив его возвраты.');
     else if (request.type === 'debt') onDelete({...data,debts:data.debts.filter(d=>d.id!==item.id)},'Долг и его платежи удалены. Остатки счетов пересчитаны.');
     else if (request.type === 'payment') onDelete({...data,debts:data.debts.map(d=>d.id===request.debt.id?{...d,payments:d.payments.filter(p=>p.id!==item.id)}:d)},'Платёж удалён. Остаток долга восстановлен.');
     onClose();
   }
+  const fromCapital = request.type === 'movement' && movementKind === 'expense' && (request.item?.capitalDebt ? accountId === request.item.accountId : (!request.item || accountId !== request.item.accountId) && roleAccount(data, 'capital')?.id === accountId);
   const accountRequired = ['income','payment','movement'].includes(request.type);
   return <FormFrame inline={inline} title={labels[request.type]} subtitle={request.type === 'payment' ? request.debt.title : 'Все суммы в рублях. Изменения сразу отражаются в расчётах.'} onClose={onClose}><form onSubmit={submit} className="entry-form">
     {request.type === 'debt' && <div className="segmented"><button type="button" className={direction==='i_owe'?'active':''} onClick={()=>setDirection('i_owe')}>Я должен</button><button type="button" className={direction==='owed_to_me'?'active':''} onClick={()=>setDirection('owed_to_me')}>Мне должны</button></div>}
@@ -103,7 +107,9 @@ export function EntryModal({ request, data, onClose, onSave, onDelete, inline = 
     <div className="form-row"><Field label={request.type==='account'?'Начальный остаток, ₽':request.type==='debt'?'Изначальная сумма, ₽':'Сумма, ₽'} hint={request.type==='account'?'Деньги, которые уже есть до записанных операций.':movementKind==='adjustment'&&request.type==='movement'?'Можно указать отрицательную сумму.':''}><input className="inp money-input" required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0,00"/></Field>{request.type!=='account' && <Field label="Дата"><input className="inp" type="date" required min="1900-01-01" max="2200-12-31" value={date} onChange={e=>setDate(e.target.value)}/></Field>}</div>
     {request.type==='income' && <Field label="Направление дохода" hint="Прежняя запись. Новые товары добавляйте на странице «Перепродажи», работы — в «Шабашках»."><select className="inp" value={category} onChange={e=>setCategory(e.target.value)}>{incomeCategoryOptions(request.item?.category).map(c=><option key={c}>{c}</option>)}</select></Field>}
     {request.type==='debt' && <Field label="Срок возврата · необязательно"><input className="inp" type="date" min={date} max="2200-12-31" value={dueDate} onChange={e=>setDueDate(e.target.value)}/></Field>}
-    {request.type!=='account' && request.type!=='debt' && <Field label="Счёт"><select className="inp" required={accountRequired} value={accountId} onChange={e=>setAccountId(e.target.value)}>{!data.accounts.length && <option value="">Сначала создайте счёт</option>}{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
+    {request.type!=='account' && request.type!=='debt' && <Field label="Счёт"><select className="inp" required={accountRequired} value={accountId} onChange={e=>setAccountId(e.target.value)}>{!data.accounts.length && <option value="">Сначала создайте счёт</option>}{data.accounts.map(a=><option key={a.id} value={a.id}>{a.name}{a.role ? ` · ${accountRoles[a.role]}` : ''}</option>)}</select></Field>}
+    {fromCapital && <p className="field-hint capital-expense-hint">Уменьшит капитал и остаток. Появится «Долг в капитал»; возвраты восстановят сумму.</p>}
+    {request.type==='movement' && !roleAccount(data,'capital') && <p className="field-hint">Чтобы расход из капитала создавал долг, назначьте счёту роль «Капитал» на главной. Название счёта само по себе не назначает роль.</p>}
     {request.type==='income' && <div className="form-note"><Check size={16}/><span>Сумма прежней записи остаётся на счёте. В доход направлений входит чистая прибыль; распределение 15/15/70 считается отдельно.</span></div>}
     {request.type==='payment' && <div className="form-note"><Check size={16}/><span>{request.debt.direction==='i_owe'?'Сумма будет списана со счёта, а ваш долг уменьшится.':'Сумма поступит на счёт, а долг вам уменьшится.'}</span></div>}
     {request.type!=='account' && <VoiceField value={note} onChange={setNote} voice={voice} onVoiceChange={setVoice} onBusyChange={setVoiceBusy}/>}

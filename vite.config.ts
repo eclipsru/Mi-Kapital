@@ -10,5 +10,5 @@ export default defineConfig({
     target: 'es2022',
     rollupOptions: { output: { manualChunks: { react: ['react', 'react-dom', 'react-dom/client'] } } },
   },
-  test: { environment: 'node', include: ['tests/**/*.test.ts'], testTimeout: 20000 },
+  test: { environment: 'node', include: ['tests/**/*.test.{ts,tsx}'], testTimeout: 20000 },
 });

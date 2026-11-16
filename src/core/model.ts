@@ -8,8 +8,8 @@ export interface Account { id: string; name: string; kind: AccountKind; openingK
 export interface Person { id: string; name: string; createdAt: string }
 export interface Income { id: string; title: string; category: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote; work?: WorkDetails; costKopecks?: number }
 export interface Payment { id: string; amountKopecks: number; date: string; accountId: string; note: string; voice?: VoiceNote }
-export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; voice?: VoiceNote; kind?: DebtKind; loanReceipt?: 'cash' | 'goods'; initialAccountId: string | null; payments: Payment[] }
-export interface Movement { id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string; category?: string; voice?: VoiceNote }
+export interface Debt { id: string; title: string; counterparty: string; direction: DebtDirection; principalKopecks: number; date: string; dueDate: string; note: string; voice?: VoiceNote; kind?: DebtKind; loanReceipt?: 'cash' | 'goods'; capitalExpenseId?: string; initialAccountId: string | null; payments: Payment[] }
+export interface Movement { capitalDebt?: true; id: string; kind: MovementKind; title: string; amountKopecks: number; date: string; accountId: string; note: string; category?: string; voice?: VoiceNote }
 export interface Plan { income: number; expenses: number; debtPayment: number; months: number; goal: number }
 export interface WorkPlan { id: string; kind: WorkKind; title: string; date: string; expectedKopecks: number; note: string; voice?: VoiceNote; createdAt: string; values?: Record<string, string> }
 export type FundingSource = 'capital' | 'pocket';
@@ -98,8 +98,12 @@ export function roleBalance(data: AppData, role: AccountRole): number {
   let balance = allocations(data)[role];
   const account = roleAccount(data, role);
   if (account) {
-    balance -= sum(data.movements.filter(m => m.kind === 'expense' && m.accountId === account.id).map(m => m.amountKopecks));
+    balance -= sum(data.movements.filter(m => m.kind === 'expense' && (m.capitalDebt ? role === 'capital' : m.accountId === account.id)).map(m => m.amountKopecks));
     for (const debt of data.debts) for (const payment of debt.payments) if (payment.accountId === account.id) balance += debt.direction === 'i_owe' ? -payment.amountKopecks : payment.amountKopecks;
+  }
+  if (role === 'capital') {
+    if (!account) balance -= sum(data.movements.filter(m => m.capitalDebt).map(m => m.amountKopecks));
+    balance += sum(data.debts.filter(d => d.capitalExpenseId).map(debtPaid));
   }
   if (role === 'hand') balance += sum(data.debts.filter(d => d.direction === 'i_owe' && d.loanReceipt === 'cash').map(d => d.principalKopecks));
   return balance;
@@ -110,7 +114,8 @@ export function returnedPrincipal(product: ResaleProduct): number {
   return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
 }
 // Остаток капитала для перепродаж: деньги на счетах без полной выручки шабашек,
-// но с 15% чистой прибыли шабашек. Долговые поступления, платежи и расходы не влияют на этот показатель.
+// но с 15% чистой прибыли шабашек. Обычные долговые поступления, платежи и расходы не влияют на этот показатель.
+// Исключение: явно связанные расходы из капитала уменьшают его до возврата внутреннего долга.
 // Покупки уменьшают остаток только на сумму из источника «Капитал»; продажа возвращает цену товара + 15% чистой прибыли.
 export function capitalRemainder(data: AppData): number {
   const liquidIds = new Set(liquidAccounts(data).map(a => a.id));
@@ -129,7 +134,11 @@ export function capitalRemainder(data: AppData): number {
   const jobReceipts = sum(jobs.map(i => i.amountKopecks));
   const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
   const expenseEffects = sum(data.movements.filter(m => m.kind === 'expense' && liquidIds.has(m.accountId)).map(m => m.amountKopecks));
-  return liquid - debtCashEffects - jobReceipts + jobCapital + expenseEffects;
+  // Linked capital expenses are the only exception: remove the outstanding internal loan.
+  const destinationCredits = sum(data.debts.filter(d => d.capitalExpenseId && liquidIds.has(capitalExpense(data, d)?.accountId ?? '')).map(debtPaid));
+  const capitalSpent = sum(data.movements.filter(m => m.capitalDebt).map(m => m.amountKopecks));
+  const capitalReturned = sum(data.debts.filter(d => d.capitalExpenseId).map(debtPaid));
+  return liquid - debtCashEffects - jobReceipts + jobCapital + expenseEffects - destinationCredits - capitalSpent + capitalReturned;
 }
 export interface StatusDurations { preparingMs: number; listedMs: number; soldMs: number }
 export function statusDurations(product: ResaleProduct, now = Date.now()): StatusDurations {
@@ -238,6 +247,25 @@ export function lastMonths(count: number, end = today()): string[] {
 export const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 export const debtPaid = (debt: Debt) => sum(debt.payments.map(p => p.amountKopecks));
 export const debtRemaining = (debt: Debt) => debt.principalKopecks - debtPaid(debt);
+// Explicit links, never guessed from an account/person name; old expenses stay unchanged.
+export const capitalExpense = (data: AppData, debt: Debt) => debt.capitalExpenseId ? data.movements.find(m => m.id === debt.capitalExpenseId && m.capitalDebt) : undefined;
+export function saveMovement(data: AppData, movement: Movement, fromCapital: boolean): AppData {
+  const old = data.movements.find(m => m.id === movement.id);
+  const linked = data.debts.find(d => d.capitalExpenseId === movement.id);
+  const paid = linked ? debtPaid(linked) : 0;
+  if (linked && paid > 0 && (!fromCapital || old?.accountId !== movement.accountId)) throw new Error('Сначала отмените возвраты в капитал: нельзя менять источник расхода с погашениями.');
+  if (fromCapital && (movement.kind !== 'expense' || !liquidAccounts(data).some(a => a.id === movement.accountId))) throw new Error('Для расхода из капитала нужен наличный или банковский счёт.');
+  if (fromCapital && movement.amountKopecks < paid) throw new Error('Расход не может быть меньше уже возвращённой в капитал суммы.');
+  const { capitalDebt: ignored, ...plain } = movement;
+  const next: Movement = fromCapital ? { ...plain, capitalDebt: true } : plain;
+  let debts = data.debts.filter(d => d.capitalExpenseId !== movement.id);
+  if (fromCapital) debts = [...debts, { id: linked?.id ?? `capital-${movement.id}`, title: 'Долг в капитал', counterparty: 'Капитал', direction: 'i_owe', principalKopecks: movement.amountKopecks, date: movement.date, dueDate: '', note: `Расход: ${movement.title}`, initialAccountId: null, capitalExpenseId: movement.id, payments: linked?.payments ?? [] }];
+  return { ...data, movements: old ? data.movements.map(m => m.id === next.id ? next : m) : [...data.movements, next], debts };
+}
+export function removeMovement(data: AppData, id: string): AppData {
+  if (data.debts.some(d => d.capitalExpenseId === id && d.payments.length)) throw new Error('Сначала отмените возвраты в капитал, затем удалите расход.');
+  return { ...data, movements: data.movements.filter(m => m.id !== id), debts: data.debts.filter(d => d.capitalExpenseId !== id) };
+}
 export function accountBalance(data: AppData, accountId: string): number {
   const account = data.accounts.find(a => a.id === accountId);
   if (!account) return 0;
@@ -249,6 +277,7 @@ export function accountBalance(data: AppData, accountId: string): number {
     if (product.sale?.accountId === accountId) balance += saleBreakdown(product).returnedKopecks;
   }
   for (const debt of data.debts) {
+    if (capitalExpense(data, debt)?.accountId === accountId) balance += debtPaid(debt);
     if (debt.initialAccountId === accountId) balance += debt.direction === 'i_owe' ? debt.principalKopecks : -debt.principalKopecks;
     for (const payment of debt.payments) if (payment.accountId === accountId) balance += debt.direction === 'i_owe' ? -payment.amountKopecks : payment.amountKopecks;
   }
@@ -258,7 +287,7 @@ export function totals(data: AppData) {
   const assets = inventoryValue(data);
   const remainder = capitalRemainder(data);
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
-  // Resale capital is inventory plus available resale cash; debts are tracked separately and never change this total.
+  // Inventory plus resale cash; ordinary debts are separate, linked capital expenses restore cash on repayment.
   const totalCapital = assets + remainder;
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());

@@ -19,15 +19,18 @@ import java.util.regex.Pattern;
 public final class MainActivity extends Activity {
   private WebView web; private NativeStore store; private Updater updater; private ValueCallback<Uri[]> fileCallback;
   private String pendingBackup; private PermissionRequest pendingAudioRequest; private static final int FILES=101; private static final int BACKUP=102; private static final int AUDIO=103; private static final int PAIR=49374;
-  private volatile String initialRoute; private volatile String pendingPairing; private volatile boolean routeApplied; private boolean bootReady;
+  private volatile String initialRoute; private volatile String pendingPairing; private volatile boolean routeApplied; private boolean bootReady; private boolean quickEntry; private Intent pendingModeIntent;
   private final Handler handler=new Handler(Looper.getMainLooper());
   private final Runnable bootWatchdog=()->{if(!bootReady&&updater.activeRoot()!=null){updater.quarantine();Toast.makeText(this,"Обновление не запустилось. Открыта рабочая версия; данные сохранены.",Toast.LENGTH_LONG).show();reload();}};
-  private static String safeRoute(String route){return route!=null&&route.matches("(add|capital|income|debts|calculation|expenses|calculation/expenses|odd-jobs|resales|income/odd-jobs|income/resales)(\\?new=1)?")?route:null;}
+  private static String safeRoute(String route){return route!=null&&(route.matches("(add|capital|income|debts|calculation|expenses|calculation/expenses|odd-jobs|resales|income/odd-jobs|income/resales)(\\?new=1)?")||route.matches("add\\?type=(expense|income|debt|product|work)"))?route:null;}
   @Override public void onCreate(Bundle saved){
-    super.onCreate(saved); getWindow().setStatusBarColor(0xff101217);getWindow().setNavigationBarColor(0xff101217);
+    quickEntry=getIntent()!=null&&getIntent().getBooleanExtra("quickEntry",false);
+    if(quickEntry)setTheme(R.style.QuickTheme);
+    super.onCreate(saved);
+    getWindow().setStatusBarColor(0xff101217);getWindow().setNavigationBarColor(0xff101217);
     store=new NativeStore(this);updater=new Updater(this,store);
     if(getIntent()!=null)initialRoute=safeRoute(getIntent().getStringExtra("route"));
-    web=new WebView(this);setContentView(web);WebSettings settings=web.getSettings();
+    web=new WebView(this);setContentView(web);sizeQuickWindow();WebSettings settings=web.getSettings();
     settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setDatabaseEnabled(true);settings.setMediaPlaybackRequiresUserGesture(false);settings.setAllowFileAccess(false);settings.setAllowContentAccess(true);settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);settings.setCacheMode(WebSettings.LOAD_DEFAULT);settings.setTextZoom(100);
     WebView.setWebContentsDebuggingEnabled(false);
     web.addJavascriptInterface(new Bridge(),"MiKapitalNative");
@@ -46,14 +49,16 @@ public final class MainActivity extends Activity {
       @Override public void onPermissionRequest(PermissionRequest request){boolean audio=request.getResources().length==1&&PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(request.getResources()[0]);if(audio&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)runOnUiThread(()->request.grant(request.getResources()));else if(audio){pendingAudioRequest=request;requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},AUDIO);}else request.deny();}
       @Override public boolean onShowFileChooser(WebView view,ValueCallback<Uri[]> callback,FileChooserParams params){if(fileCallback!=null)fileCallback.onReceiveValue(null);fileCallback=callback;Intent intent=params.createIntent();intent.addCategory(Intent.CATEGORY_OPENABLE);String[] accepts=params.getAcceptTypes();intent.setType(accepts.length>0&&accepts[0].startsWith("image/")?"image/*":"*/*");intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,params.getMode()==FileChooserParams.MODE_OPEN_MULTIPLE);try{startActivityForResult(intent,FILES);}catch(Exception e){fileCallback=null;return false;}return true;}
     });
-    web.loadUrl("https://appassets.androidplatform.net/app/index.html");
+    web.loadUrl("https://appassets.androidplatform.net/app/index.html"+(initialRoute==null?"":"#"+initialRoute));
     handler.postDelayed(bootWatchdog,20000);
     CapitalWidget.updateAll(this);QuickWidget.updateAll(this);ReminderWorker.schedule(this);
   }
+  private void sizeQuickWindow(){if(quickEntry){setFinishOnTouchOutside(false);android.util.DisplayMetrics metrics=getResources().getDisplayMetrics();getWindow().setLayout(Math.min((int)(560*metrics.density),(int)(metrics.widthPixels*0.96)),Math.min((int)(600*metrics.density),(int)(metrics.heightPixels*0.86)));getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);}}
+  @Override public void onConfigurationChanged(android.content.res.Configuration configuration){super.onConfigurationChanged(configuration);sizeQuickWindow();}
   public void evaluate(String js){runOnUiThread(()->web.evaluateJavascript(js,null));}
   public void openExternal(String url){try{if(!url.startsWith("https://github.com/"))return;startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){Toast.makeText(this,"Не удалось открыть браузер",Toast.LENGTH_SHORT).show();}}
-  public void reload(){runOnUiThread(()->{routeApplied=false;bootReady=false;handler.removeCallbacks(bootWatchdog);handler.postDelayed(bootWatchdog,20000);web.clearCache(true);web.loadUrl("https://appassets.androidplatform.net/app/index.html");});}
-  @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);String route=safeRoute(intent.getStringExtra("route"));if(route!=null){initialRoute=route;if(routeApplied)evaluate("window.location.hash="+JSONObject.quote(route));}}
+  public void reload(){runOnUiThread(()->{routeApplied=false;bootReady=false;handler.removeCallbacks(bootWatchdog);handler.postDelayed(bootWatchdog,20000);web.clearCache(true);web.loadUrl("https://appassets.androidplatform.net/app/index.html"+(initialRoute==null?"":"#"+initialRoute));});}
+  @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);if(quickEntry!=intent.getBooleanExtra("quickEntry",false)){pendingModeIntent=intent;evaluate("window.dispatchEvent(new Event(\"mi-kapital-switch-mode\"))");return;}setIntent(intent);String route=safeRoute(intent.getStringExtra("route"));if(route!=null){initialRoute=route;if(routeApplied)evaluate("window.location.hash="+JSONObject.quote(route));}}
   @Override protected void onResume(){super.onResume();if(web!=null)evaluate("window.dispatchEvent(new Event('mi-kapital-reminders'))");}
   @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code==104){ReminderWorker.schedule(this);evaluate("window.dispatchEvent(new Event('mi-kapital-reminders'))");}WebChromeClient client=web.getWebChromeClient();if(code==AUDIO&&pendingAudioRequest!=null){final PermissionRequest request=pendingAudioRequest;pendingAudioRequest=null;runOnUiThread(()->{if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else request.deny();});}}
   @Override protected void onActivityResult(int code,int result,Intent data){
@@ -62,9 +67,14 @@ public final class MainActivity extends Activity {
     if(code==FILES&&fileCallback!=null){Uri[] uris=null;if(result==RESULT_OK&&data!=null){if(data.getClipData()!=null){uris=new Uri[data.getClipData().getItemCount()];for(int i=0;i<uris.length;i++)uris[i]=data.getClipData().getItemAt(i).getUri();}else if(data.getData()!=null)uris=new Uri[]{data.getData()};}fileCallback.onReceiveValue(uris);fileCallback=null;}
     if(code==BACKUP&&pendingBackup!=null){String json=pendingBackup;pendingBackup=null;boolean ok=false;if(result==RESULT_OK&&data!=null&&data.getData()!=null){try(OutputStream out=getContentResolver().openOutputStream(data.getData())){out.write(json.getBytes("UTF-8"));ok=true;}catch(Exception ignored){}}final boolean success=ok;evaluate("window.dispatchEvent(new CustomEvent('mi-kapital-backup',{detail:"+success+"}))");}
   }
-  @Override public void onBackPressed(){if(web.canGoBack())web.goBack();else super.onBackPressed();}
+  @Override public void onBackPressed(){if(quickEntry){evaluate("window.dispatchEvent(new Event(\"mi-kapital-close-quick\"))");return;}if(web.canGoBack())web.goBack();else super.onBackPressed();}
   @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);web.removeJavascriptInterface("MiKapitalNative");web.destroy();super.onDestroy();}
   public final class Bridge {
+    @JavascriptInterface public void applyPendingIntent(){runOnUiThread(()->{if(pendingModeIntent!=null){setIntent(pendingModeIntent);pendingModeIntent=null;recreate();}});}
+    @JavascriptInterface public boolean quickEntry(){return quickEntry;}
+    @JavascriptInterface public void closeQuickEntry(){if(quickEntry)runOnUiThread(()->finish());}
+    @JavascriptInterface public void openFullApp(){if(quickEntry)runOnUiThread(()->{getIntent().putExtra("quickEntry",false);getIntent().putExtra("route","add");recreate();});}
+
     @JavascriptInterface public String reminderSettings(){return ReminderWorker.settings(MainActivity.this).toString();}
     @JavascriptInterface public String saveReminderSettings(String json){try{ReminderWorker.saveSettings(MainActivity.this,json);return "{\"ok\":true}";}catch(Exception e){return "{\"ok\":false}";}}
     @JavascriptInterface public void requestNotificationPermission(){runOnUiThread(()->{if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},104);else{Intent intent=new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName());try{startActivity(intent);}catch(Exception ignored){}}});}

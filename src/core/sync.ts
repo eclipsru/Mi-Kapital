@@ -77,6 +77,14 @@ export function mergeData(a: AppData, b: AppData, preferRemote = false): AppData
   for (const [key, value] of Object.entries(mb.deleted)) metadata.deleted[key] = maxClock(metadata.deleted[key], value);
   const result: AppData = { ...emptyData(), updatedAt: a.updatedAt > b.updatedAt ? a.updatedAt : b.updatedAt, sync: metadata, plan: (ma.clocks.plan ?? '') !== (mb.clocks.plan ?? '') ? (ma.clocks.plan ?? '') > (mb.clocks.plan ?? '') ? a.plan : b.plan : preferRemote || comparable(a.plan) < comparable(b.plan) ? b.plan : a.plan };
   for (const collection of collections) (result as unknown as Record<string, unknown>)[collection] = mergeRows(a, b, collection, ma, mb, metadata, preferRemote);
+  // An offline deletion must not silently erase a repayment on a linked
+  // capital expense. Only explicit payment tombstones authorize its removal.
+  for (const debt of [...a.debts, ...b.debts]) if (debt.capitalExpenseId && !result.debts.some(d => d.id === debt.id)) {
+    for (const payment of debt.payments) {
+      const key = `payments/${debt.id}/${payment.id}`;
+      if (!metadata.deleted[key] || metadata.deleted[key] < (metadata.clocks[key] ?? '')) throw new Error('Конфликт расхода из капитала: на другом устройстве есть возврат по удалённому расходу. Сохраните резервные копии и проверьте записи.');
+    }
+  }
   result.debts = result.debts.map(debt => {
     const da = a.debts.find(d => d.id === debt.id), db = b.debts.find(d => d.id === debt.id);
     const payments = new Map([...(da?.payments ?? []), ...(db?.payments ?? [])].map(p => [p.id, p]));

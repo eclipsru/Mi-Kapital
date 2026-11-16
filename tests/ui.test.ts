@@ -8,7 +8,7 @@ import { emptyData, lastMonths, money, today, totals, type ResaleProduct } from 
 import { serializeBackup } from '../src/core/storage';
 let root:Root|undefined;let container:HTMLElement|undefined;
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;(window as any).__MI_KAPITAL_TEST__=true;
-afterEach(()=>{if(root)act(()=>root!.unmount());container?.remove();root=undefined;container=undefined;localStorage.clear();window.location.hash='';delete (window as any).desktop;});
+afterEach(()=>{if(root)act(()=>root!.unmount());container?.remove();root=undefined;container=undefined;localStorage.clear();window.location.hash='';delete (window as any).desktop;delete (window as any).MiKapitalNative;});
 async function mount(){container=document.createElement('div');document.body.append(container);root=createRoot(container);await act(async()=>{root!.render(createElement(App));});await act(async()=>{await new Promise(r=>setTimeout(r,10));});}
 const button=(text:string)=>[...container!.querySelectorAll('button')].find(b=>b.textContent?.trim()===text) as HTMLButtonElement;
 async function click(text:string){const b=button(text);if(!b)throw new Error(`Button not found: ${text}`);await act(async()=>{b.click();await new Promise(r=>setTimeout(r,5));});}
@@ -41,8 +41,8 @@ describe('real React UI flows',()=>{
     await click('Долги');await click('Добавить долг');await input('Название','Заём');await input('Кому вы должны','Алексей');await input('Изначальная сумма, ₽','300');await submitModal();await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.debt-strip')?.textContent).toContain(money(30000));expect(roleCard('hand')).not.toContain('Взял в долг');
     await click('Доходы');await openResales();await productAction('Продать');await input('Цена продажи, ₽','1500');expect(container!.querySelector('.sale-preview')?.textContent).toContain(money(40000));await submitModal();expect(saved().products[0].sale.priceKopecks).toBe(150000);
     await click('Мой капитал');expect(cashText()).toBe(money(106050));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(0));expect(roleCard('capital')).toContain(money(6000));
-    await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(106050));expect(roleCard('capital')).toContain(money(-14000));
-    await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(106050));expect(container!.textContent).toContain('Погашение: Заём');
+    await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(86050));expect(roleCard('capital')).toContain(money(-14000));
+    await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(86050));expect(container!.textContent).toContain('Погашение: Заём');
   });
   it('opens both income directions as separate pages and counts net profit, not 15%',async()=>{
     const previous=`${lastMonths(2)[0]}-05`.slice(0,7);seedIncome();await mount();
@@ -111,6 +111,16 @@ describe('real React UI flows',()=>{
   });
 });
 
+describe('capital expense UI',()=>{
+  it('creates one linked debt, repays from Hands and protects the source expense',async()=>{
+    localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'c',name:'Капитал',kind:'cash',role:'capital',openingKopecks:100000,createdAt:'2026-01-01'},{id:'h',name:'Руки',kind:'bank',role:'hand',openingKopecks:50000,createdAt:'2026-01-01'}]}));await mount();
+    await click('Расходы');await click('Добавить расход');await input('Название','Из капитала');await input('Сумма, ₽','200');await input('Счёт','c');expect(container!.textContent).toContain('Появится «Долг в капитал»');await submitModal();expect(saved().debts).toHaveLength(1);expect(saved().movements[0].capitalDebt).toBe(true);expect(totals(saved()).remainder).toBe(130000);
+    await click('Долги');await click('Отдать');await input('Сумма, ₽','50');await clickSelector('[aria-label="Списать со счёта Руки"]');await clickSelector('[aria-label="Списать со счёта Капитал"]');await submitModal();expect(container!.querySelector('[role=alert]')?.textContent).toContain('другого счёта');expect(saved().debts[0].payments).toHaveLength(0);
+    await clickSelector('[aria-label="Списать со счёта Капитал"]');await clickSelector('[aria-label="Списать со счёта Руки"]');await submitModal();expect(saved().debts[0].payments).toHaveLength(1);expect(totals(saved()).remainder).toBe(135000);await click('Мой капитал');expect(roleCard('capital')).toContain(money(-15000));expect(roleCard('hand')).toContain(money(-5000));
+    await click('Расходы');await click('Из капитала');await input('Сумма, ₽','40');await submitModal();expect(container!.querySelector('[role=alert]')?.textContent).toContain('меньше уже возвращённой');expect(saved().movements[0].amountKopecks).toBe(20000);await click('Удалить');await click('Да, удалить');expect(container!.querySelector('[role=alert]')?.textContent).toContain('Сначала отмените возвраты');expect(saved().debts).toHaveLength(1);
+  });
+});
+
 describe('new loan mode and role balances',()=>{
   it('preserves legacy loans, creates cash and goods loans and shows matching repayment amounts',async()=>{
     const createdAt=new Date().toISOString();const old={id:'old',title:'Старый долг',counterparty:'Друг',direction:'i_owe',principalKopecks:20000,date:today(),dueDate:'',note:'',initialAccountId:null,payments:[]};
@@ -126,13 +136,18 @@ describe('new loan mode and role balances',()=>{
 });
 
 describe('phone navigation, split repayment and free product',()=>{
-  afterEach(()=>{if(root)act(()=>root!.unmount());container?.remove();root=undefined;container=undefined;localStorage.clear();window.location.hash='';delete (window as any).desktop;});
+  afterEach(()=>{if(root)act(()=>root!.unmount());container?.remove();root=undefined;container=undefined;localStorage.clear();window.location.hash='';delete (window as any).desktop;delete (window as any).MiKapitalNative;});
   function androidBridge(){let checks=0;const config={lanEnabled:true,lanPort:47653,lanToken:'',lanUrl:'',cloudEnabled:false,supabaseUrl:'',supabaseKey:'',email:''};(window as any).desktop={platform:'android',info:async()=>({version:'2.0.37',phase:'idle'}),checkUpdates:async()=>{checks++;},installUpdate:async()=>({ok:true}),openReleases:async()=>{},onUpdate:()=>()=>{},loadData:async()=>JSON.parse(localStorage.getItem('mi-kapital.v2.local')||'null'),saveData:async(data:unknown)=>localStorage.setItem('mi-kapital.v2.local',JSON.stringify(data)),syncConfig:async()=>config,saveSyncConfig:async()=>{},syncInfo:async()=>null,bootReady:()=>{},exportBackup:async()=>true,scanPairing:async()=>{}};return()=>checks;}
   it('shows navigation with a central add section and starts update checks',async()=>{
     const checks=androidBridge();await mount();expect(checks()).toBeGreaterThan(0);expect(container!.classList.contains('android-shell')||container!.querySelector('.android-shell')).toBeTruthy();const nav=container!.querySelector('.bottom-nav')!;expect(nav.querySelectorAll('button')).toHaveLength(5);
-    for(const [index,hash,title] of [[1,'income','Доходы'],[3,'debts','Долги'],[4,'calculation','Расчёт'],[0,'capital','Мой капитал']] as const){await act(async()=>nav.querySelectorAll('button')[index].click());expect(window.location.hash).toBe('#'+hash);expect(container!.querySelector('h1')?.textContent).toBe(title);}
+    for(const [index,hash,title] of [[1,'income','Доходы'],[3,'debts','Долги'],[4,'expenses','Расходы'],[0,'capital','Мой капитал']] as const){await act(async()=>nav.querySelectorAll('button')[index].click());expect(window.location.hash).toBe('#'+hash);expect(container!.querySelector('h1')?.textContent).toBe(title);}
     await act(async()=>nav.querySelectorAll('button')[2].click());expect(window.location.hash).toBe('#add');expect(container!.querySelector('h1')?.textContent).toBe('Добавить');expect(container!.querySelectorAll('[role=tab]')).toHaveLength(6);
     await act(async()=>nav.querySelectorAll('button')[1].click());await openResales();expect(nav.querySelectorAll('button')[1].getAttribute('aria-current')).toBe('page');await act(async()=>nav.querySelectorAll('button')[0].click());expect(container!.querySelector('h1')?.textContent).toBe('Мой капитал');
+  });
+  it('renders the floating quick flow without dashboard and waits for failed disk writes before closing',async()=>{
+    androidBridge();let fail=true,closed=0;const bridge=(window as any).desktop;const save=bridge.saveData;bridge.saveData=async(data:unknown)=>{if(fail)throw new Error('Нет места');return save(data);};
+    (window as any).MiKapitalNative={quickEntry:()=>true,closeQuickEntry:()=>closed++,openFullApp:()=>{}};
+    localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash',openingKopecks:100000,createdAt:'2026-01-01'}]}));window.location.hash='add?type=expense';await mount();expect(container!.querySelector('.quick-entry')).not.toBeNull();expect(container!.querySelector('.bottom-nav,.sidebar')).toBeNull();await input('Название','Быстрый расход');await input('Сумма, ₽','10');await click('Добавить');expect(container!.textContent).toContain('Нет места');await clickSelector('[aria-label="Закрыть быстрое добавление"]');expect(closed).toBe(0);fail=false;await click('Добавить');expect(saved().movements).toHaveLength(1);await clickSelector('[aria-label="Закрыть быстрое добавление"]');expect(closed).toBe(1);
   });
   it('preserves drafts across add tabs and saves the chosen form once',async()=>{
     androidBridge();localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash',openingKopecks:100000,createdAt:'2026-01-01'}],people:[{id:'p',name:'Друг',createdAt:'2026-01-01'}]}));await mount();

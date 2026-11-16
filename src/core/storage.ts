@@ -45,6 +45,18 @@ export function validateData(value: unknown): AppData {
     if (!unique(d.payments as Payment[]) || debtPaid(d as unknown as Debt) > d.principalKopecks) return false;
     return true;
   })) return fail();
+  // A capital expense and its internal debt form one logical operation. Reject
+  // partial/conflicting sync rather than silently losing or duplicating money.
+  for (const m of movements as Movement[]) {
+    if (m.capitalDebt !== undefined && m.capitalDebt !== true) return fail();
+    const linked = (debts as Debt[]).filter(d => d.capitalExpenseId === m.id);
+    if (m.capitalDebt && (m.kind !== 'expense' || !liquidIds.has(m.accountId) || linked.length !== 1)) return fail();
+    if (!m.capitalDebt && linked.length) return fail();
+  }
+  for (const d of debts as Debt[]) if (d.capitalExpenseId !== undefined) {
+    const m = (movements as Movement[]).find(m => m.id === d.capitalExpenseId && m.capitalDebt);
+    if (!text(d.capitalExpenseId) || !m || d.direction !== 'i_owe' || d.initialAccountId !== null || d.loanReceipt !== undefined || d.principalKopecks !== m.amountKopecks || d.date !== m.date || d.payments.some(p => p.accountId === m.accountId || (accounts as Account[]).some(a => a.id === p.accountId && a.role === 'capital'))) return fail();
+  }
   const plans = value.workPlans;
   if (plans !== undefined) {
     if (!Array.isArray(plans) || plans.length > 20000) return fail();

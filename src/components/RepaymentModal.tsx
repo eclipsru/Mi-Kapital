@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check } from 'lucide-react';
-import { accountBalance, accountRoles, roleBalance, debtRemaining, inputMoney, money, parseMoney, roleAccount, today, uid, validDate, type AppData, type Debt, type Payment } from '../core/model';
+import { capitalExpense, accountBalance, accountRoles, roleBalance, debtRemaining, inputMoney, money, parseMoney, today, uid, validDate, type AppData, type Debt, type Payment } from '../core/model';
 import { Button, Field, Modal } from './ui';
 import { VoiceField } from './VoiceField';
 import type { VoiceNote } from '../core/model';
@@ -13,7 +13,9 @@ export function RepaymentModal({ request, data, onClose, onSave }: { request: Re
   const [amount, setAmount] = useState('');
   const [debtId, setDebtId] = useState(request.debt?.id ?? open[0]?.id ?? '');
   const [debits, setDebits] = useState<DebitDraft[]>(() => {
-    const accountId = roleAccount(data, 'debt')?.id ?? data.accounts[0]?.id;
+    const target=request.debt??open[0];
+    const available=data.accounts.filter(a=>!target?.capitalExpenseId||(a.id!==capitalExpense(data,target)?.accountId&&a.role!=='capital'));
+    const accountId = available.find(a=>a.role==='debt')?.id ?? available[0]?.id;
     return accountId ? [{ accountId, amount: '' }] : [];
   });
   const [date, setDate] = useState(today());
@@ -51,6 +53,7 @@ export function RepaymentModal({ request, data, onClose, onSave }: { request: Re
     for (const row of debits) {
       const value = parseMoney(row.amount);
       const account = data.accounts.find(a => a.id === row.accountId);
+      if (selected.capitalExpenseId && (capitalExpense(data, selected)?.accountId === row.accountId || account?.role === 'capital')) return setError('Возврат в капитал нужно списать с другого счёта, не с самого капитала.');
       if (!account) return setError('Выбранный счёт больше не существует. Выберите другой.');
       if (value === null || value <= 0) return setError(`Укажите положительную сумму списания со счёта «${account.name}».`);
       // One voice attachment per operation; every split keeps the text note and its own account.
@@ -63,8 +66,8 @@ export function RepaymentModal({ request, data, onClose, onSave }: { request: Re
   return <Modal title="Отдать долг" subtitle="Один долг и одно или несколько списаний с выбранных счетов." onClose={onClose}>
     <form className="entry-form" onSubmit={submit}>
       <Field label="Сумма, ₽"><input className="inp money-input" required inputMode="decimal" value={amount} placeholder="0,00" onChange={e => changeAmount(e.target.value)}/></Field>
-      <Field label="Какой долг погасить"><select className="inp" required value={debtId} onChange={e => setDebtId(e.target.value)}>{!open.length && <option value="">Нет открытых долгов</option>}{open.map(d => <option key={d.id} value={d.id}>{d.title} · {d.counterparty} · остаток {money(debtRemaining(d))}</option>)}</select></Field>
-      {selected && <div className="form-note"><Check size={16}/><span>Остаток выбранного долга: {money(debtRemaining(selected))}. Все списания будут добавлены только в этот долг.</span></div>}
+      <Field label="Какой долг погасить"><select className="inp" required value={debtId} onChange={e => setDebtId(e.target.value)}>{!open.length && <option value="">Нет открытых долгов</option>}{open.map(d => <option key={d.id} value={d.id}>{d.title}{d.capitalExpenseId ? ` (${capitalExpense(data,d)?.title ?? 'расход'})` : ''} · {d.counterparty} · остаток {money(debtRemaining(d))}</option>)}</select></Field>
+      {selected && <div className="form-note"><Check size={16}/><span>Остаток выбранного долга: {money(debtRemaining(selected))}. {selected.capitalExpenseId ? 'Возврат восстановит капитал и остаток; сумма спишется с выбранных других счетов.' : 'Все списания будут добавлены только в этот долг.'}</span></div>}
       <Field label="Дата"><input className="inp" type="date" required min="1900-01-01" max="2200-12-31" value={date} onChange={e => setDate(e.target.value)}/></Field>
       <fieldset className="funding-fieldset repayment-accounts"><legend>Счета списания · можно несколько</legend><p className="field-hint">Отметьте счета и укажите сумму для каждого. Суммы назначенных ролей совпадают с карточками на главной. Если счёт без роли, назначьте её на главной странице.</p>
         {!data.accounts.length && <p className="form-error">Сначала создайте счёт в разделе «Мой капитал».</p>}

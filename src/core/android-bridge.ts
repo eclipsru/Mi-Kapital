@@ -2,6 +2,7 @@ import type { DesktopBridge, UpdateState } from './bridge';
 import type { AppData } from './model';
 import type { SyncConfig } from './sync';
 export interface AndroidNative {
+  quickEntry?(): boolean; closeQuickEntry?(): void; openFullApp?(): void; applyPendingIntent?(): void;
   reminderSettings?(): string; saveReminderSettings?(json: string): string; requestNotificationPermission?(): void; openNotificationSettings?(): void;
   platform(): string; loadData(): string; saveData(json: string): string;
   syncConfig(): string; saveSyncConfig(json: string): string; syncInfo(): string;

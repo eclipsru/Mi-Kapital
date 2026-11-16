@@ -26,7 +26,7 @@ export function DebtsPage({ data, onEdit }: { data: AppData; onEdit: (request: D
     </div>
     <div className="list-toolbar"><div className="tabs">{([['all', 'Все долги'], ['i_owe', 'Я должен'], ['owed_to_me', 'Мне должны']] as const).map(([key, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}</div><label className="checkbox-label"><input type="checkbox" checked={showClosed} onChange={e => setShowClosed(e.target.checked)}/>Показывать закрытые</label></div>
     {debts.length ? <div className="debts-list">{debts.map(debt => <DebtRow key={debt.id} debt={debt} data={data} onEdit={onEdit}/>)}</div> : <div className="panel"><Empty icon={HandCoins} title={data.debts.length ? 'В этом списке нет долгов' : 'Здесь пока нет долгов'} text="Добавьте обязательство или заём. Частичные погашения и возвраты будут учитываться автоматически." action={<Button onClick={() => onEdit({ type: 'debt' })}><Plus size={17}/>Добавить долг</Button>}/></div>}
-    <div className="info-banner"><Users size={19}/><p>Долги и их погашения учитываются в этом разделе отдельно и не меняют капитал для перепродаж. Кнопка «Отдать» погашает один долг; сумму можно распределить между несколькими счетами.</p></div>
+    <div className="info-banner"><Users size={19}/><p>Обычные долги не меняют капитал. Исключение — «Долг в капитал» из расхода: его возврат восстанавливает капитал. Кнопка «Отдать» погашает один долг; сумму можно распределить между несколькими счетами.</p></div>
   </>;
 }
 function DebtRow({ debt, data, onEdit }: { debt: Debt; data: AppData; onEdit: (request: DebtsEdit) => void }) {
@@ -38,12 +38,12 @@ function DebtRow({ debt, data, onEdit }: { debt: Debt; data: AppData; onEdit: (r
   return <article className={`debt-list-item debt-tone-${debt.direction === 'i_owe' ? 'payable' : 'receivable'} ${closed ? 'closed' : ''}`}>
     <div className="debt-row-main">
       <span className={`account-icon ${debt.direction === 'i_owe' ? 'kind-cash' : 'kind-bank'}`}><HandCoins size={20}/></span>
-      <div className="debt-row-title"><button className="text-link" onClick={() => onEdit({ type: 'debt', item: debt })}>{debt.title}</button><span className="counterparty">{debt.counterparty} · {debtKindLabels[debt.kind ?? 'business']}</span></div>
+      <div className="debt-row-title"><button className="text-link" onClick={() => onEdit(debt.capitalExpenseId ? { type: 'movement', item: data.movements.find(m => m.id === debt.capitalExpenseId)! } : { type: 'debt', item: debt })}>{debt.title}</button><span className="counterparty">{debt.counterparty} · {debtKindLabels[debt.kind ?? 'business']}</span></div>
       <Badge tone={closed ? 'green' : overdue ? 'red' : debt.direction === 'i_owe' ? 'orange' : 'neutral'}>{closed ? <><CheckCheck size={13}/>Закрыт</> : overdue ? 'Срок прошёл' : debt.direction === 'i_owe' ? 'Я должен' : 'Мне должны'}</Badge>
       <div className="debt-row-amount"><strong>{money(remaining)}</strong><span>из {money(debt.principalKopecks)}</span></div>
       <div className="debt-row-progress"><div className="progress-track"><span style={{ width: `${percent}%` }}/></div><span>{percent}%</span></div>
       {debt.dueDate && <div className={`debt-date ${overdue ? 'text-red' : ''}`}><CalendarClock size={14}/>{formatDate(debt.dueDate)}</div>}
-      <div className="debt-row-actions">{!closed && <Button variant={debt.direction === 'i_owe' ? 'primary' : 'secondary'} className="btn-small" onClick={() => onEdit(debt.direction === 'i_owe' ? { type: 'repayment', debt } : { type: 'payment', debt })}><Plus size={14}/>{debt.direction === 'i_owe' ? 'Отдать' : 'Записать возврат'}</Button>}<IconButton label={`Изменить долг ${debt.title}`} onClick={() => onEdit({ type: 'debt', item: debt })}><Pencil size={15}/></IconButton></div>
+      <div className="debt-row-actions">{!closed && <Button variant={debt.direction === 'i_owe' ? 'primary' : 'secondary'} className="btn-small" onClick={() => onEdit(debt.direction === 'i_owe' ? { type: 'repayment', debt } : { type: 'payment', debt })}><Plus size={14}/>{debt.direction === 'i_owe' ? 'Отдать' : 'Записать возврат'}</Button>}<IconButton label={`Изменить долг ${debt.title}`} onClick={() => onEdit(debt.capitalExpenseId ? { type: 'movement', item: data.movements.find(m => m.id === debt.capitalExpenseId)! } : { type: 'debt', item: debt })}><Pencil size={15}/></IconButton></div>
     </div>
     {debt.note && <p className="debt-note">{debt.note}</p>}
     <details className="payment-history debt-repayments" open={debt.payments.length > 0}>

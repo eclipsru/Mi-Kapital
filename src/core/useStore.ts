@@ -51,6 +51,10 @@ export function useStore() {
   const replace = useCallback((next: AppData) => { validateData(next); loaded.current = true; commit(() => next); }, [commit]);
   const mergeRemote = useCallback((raw: unknown, preferRemote = false) => { if (!loaded.current) return; const remote = validateData(raw); commit(current => mergeData(current, remote, preferRemote), true); }, [commit]);
   useEffect(() => { const bridge = desktop(); return bridge?.onRemoteData?.(mergeRemote); }, [mergeRemote]);
-  const flush = useCallback(async () => { await queue.current; if (lastError.current) throw new Error('Не удалось сохранить данные. Экспортируйте резервную копию перед обновлением.'); }, []);
+  const flush = useCallback(async () => {
+    let pending: Promise<void>;
+    do { pending = queue.current; await pending; } while (pending !== queue.current);
+    if (lastError.current) throw new Error(`Не удалось сохранить данные: ${lastError.current.message}. Не закрывайте приложение; повторите сохранение или экспортируйте резервную копию.`);
+  }, []);
   return { data, dataRef, update, replace, mergeRemote, ready, saveState, loadError, flush };
 }

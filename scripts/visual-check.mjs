@@ -229,7 +229,7 @@ try {
   await phone.evaluate(() => document.fonts.ready);
   const bottom = phone.getByRole('navigation', { name: 'Разделы приложения снизу' });
   if (await bottom.locator('button').count() !== 5) throw new Error('Android bottom navigation must contain four sections and add');
-  for (const [label, heading] of [['Капитал', 'Мой капитал'], ['Доходы', 'Доходы'], ['Долги', 'Долги'], ['Расчёт', 'Расчёт']]) {
+  for (const [label, heading] of [['Капитал', 'Мой капитал'], ['Доходы', 'Доходы'], ['Долги', 'Долги'], ['Расходы', 'Расходы']]) {
     await bottom.getByRole('button', { name: label, exact: true }).click();
     await phone.getByRole('heading', { name: heading, exact: true }).waitFor();
     await phone.waitForTimeout(250);
@@ -248,6 +248,21 @@ try {
   await phone.getByRole('heading', { name: 'Мой капитал', exact: true }).waitFor();
   const debtIsSeparate = await phone.evaluate(() => document.querySelector('.role-hand .borrowed-on-hand') === null);
   if (!debtIsSeparate) throw new Error('Debt amounts must stay separate from the resale-capital role cards');
+  await phone.addInitScript(() => { window.MiKapitalNative = { quickEntry: () => true, closeQuickEntry: () => {}, openFullApp: () => {} }; });
+  await phone.goto(`${url}/#add?type=expense`, { waitUntil: 'networkidle' });
+  await phone.reload({ waitUntil: 'networkidle' });
+  await phone.locator('.quick-entry').waitFor();
+  if (await phone.locator('.sidebar,.bottom-nav').count()) throw new Error('Quick entry must not show dashboard navigation');
+  for (const width of [390, 320]) {
+    await phone.setViewportSize({ width, height: 600 });
+    for (const label of ['Расход', 'Доход', 'Долг', 'Товар', 'Работа']) {
+      await phone.getByRole('tab', { name: label, exact: true }).click();
+      if (await phone.evaluate(w => document.documentElement.scrollWidth > w + 1 || innerWidth > w + 1, width)) throw new Error(`Quick entry overflow: ${width} ${label}`);
+      await phone.locator('[role=tabpanel]:not([hidden]) button[type=submit]').scrollIntoViewIfNeeded();
+    }
+    await phone.getByRole('tab', { name: 'Расход', exact: true }).click();
+    await phone.screenshot({ path: path.join(out, `quick-entry-${width}.png`), fullPage: true });
+  }
   await phone.close();
   if (errors.length) throw new Error(errors.join('\n'));
   console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. Android five-button fixed bottom menu/add forms/compact pages; no browser errors or horizontal overflow.');
