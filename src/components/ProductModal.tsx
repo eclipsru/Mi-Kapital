@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AlertCircle, Check, ImagePlus, Info, PackagePlus, Trash2, X } from 'lucide-react';
 import { capitalFundingAvailable, capitalRemainder, fundingLabels, inputMoney, liquidAccounts, MAX_PRODUCT_PHOTOS, money, parseMoney, parsePercent, people, productKinds, purchasePriceLabel, productStatusLabels, profitAllocation, roleAccount, saleBreakdown, today, uid, validDate, type AppData, type FundingSource, type Investor, type ProductFunding, type ProductStatus, type ResaleProduct, type VoiceNote } from '../core/model';
 import { mediaError, photoAccept, preparePhoto } from '../core/media';
-import { Button, Field, Modal } from './ui';
+import { Button, Field, FormFrame } from './ui';
 import { validateData } from '../core/storage';
 import { VoiceField } from './VoiceField';
 
 export type ProductRequest = { type: 'product'; item?: ResaleProduct } | { type: 'product-sale'; item: ResaleProduct };
 type FundingDraft = { enabled: boolean; amount: string; accountId: string };
-export function ProductModal({ request, data, onClose, onSave, onDelete }: { request: ProductRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
+export function ProductModal({ request, data, onClose, onSave, onDelete, inline = false }: { inline?: boolean; request: ProductRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
   const item = request.item;
   const selling = request.type === 'product-sale';
   const accounts = liquidAccounts(data);
@@ -114,7 +114,7 @@ export function ProductModal({ request, data, onClose, onSave, onDelete }: { req
     onDelete({ ...data, products: (data.products ?? []).map(p => p.id === item.id ? rest : p) }, 'Продажа отменена. Товар снова в наличии, возврат денег отменён.'); onClose();
   }
   const title = selling ? item?.sale ? 'Изменить продажу' : 'Продать товар' : item ? 'Изменить товар' : 'Добавить товар';
-  return <Modal title={title} subtitle={selling ? `${item?.kind} · покупка ${purchasePriceLabel(saleBreakdown(item!).cost)}` : 'Покупка, источники денег, состояние и инвестор — в одной карточке.'} onClose={onClose} wide>
+  return <FormFrame inline={inline} title={title} subtitle={selling ? `${item?.kind} · покупка ${purchasePriceLabel(saleBreakdown(item!).cost)}` : 'Покупка, источники денег, состояние и инвестор — в одной карточке.'} onClose={onClose} wide>
     <form className="entry-form product-form" onSubmit={submit}>
       {!selling && <>
         <div className="form-section-title"><span>01</span><h3>Товар и покупка</h3></div>
@@ -132,5 +132,5 @@ export function ProductModal({ request, data, onClose, onSave, onDelete }: { req
       {confirmDelete && <div className="delete-confirm"><strong>Удалить товар и связанные суммы?</strong><p>{item?.sale ? 'Покупка и возврат продажи будут исключены из расчёта. Фото и аудио тоже удалятся.' : 'Цена покупки вернётся на счета, товар исчезнет из активов.'} Отменить действие нельзя.</p><div className="flex gap-2"><Button type="button" variant="danger" onClick={remove}>Да, удалить</Button><Button type="button" variant="secondary" onClick={() => setConfirmDelete(false)}>Отмена</Button></div></div>}
       <div className="modal-actions">{item && !selling && <Button type="button" variant="ghost" className="delete-btn" onClick={() => setConfirmDelete(true)}><Trash2 size={16}/>Удалить</Button>}{selling && item?.sale && <Button type="button" variant="ghost" className="delete-btn" onClick={cancelSale}>Отменить продажу</Button>}<Button type="button" variant="secondary" onClick={onClose}>Отмена</Button><Button type="submit" disabled={mediaBusy || voiceBusy}><Check size={17}/>{selling ? item?.sale ? 'Сохранить продажу' : 'Подтвердить продажу' : item ? 'Сохранить' : 'Добавить товар'}</Button></div>
     </form>
-  </Modal>;
+  </FormFrame>;
 }

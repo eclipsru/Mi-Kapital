@@ -10,7 +10,7 @@ import java.util.UUID;
 
 public final class NativeStore {
   private final Context context;
-  private final Object lock = new Object();
+  private static final Object lock = new Object();
   public NativeStore(Context context) { this.context = context.getApplicationContext(); }
   public File file(String name) { return new File(context.getFilesDir(), name); }
   public static String read(File file) throws IOException { return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8); }
@@ -40,7 +40,7 @@ public final class NativeStore {
   }
   public void save(String json) throws Exception {
     synchronized (lock) { JSONObject data = new JSONObject(json); if (!valid(data)) throw new IllegalArgumentException("Неверные данные"); atomic(file("capital-data.json"), data.toString()); }
-    try { CapitalWidget.updateAll(context); QuickWidget.updateAll(context); } catch (Exception ignored) {}
+    try { CapitalWidget.updateAll(context); QuickWidget.updateAll(context); ReminderWorker.schedule(context); } catch (Exception ignored) {}
   }
   public JSONObject config() {
     try { return new JSONObject(read(file("sync-settings.json"))); }

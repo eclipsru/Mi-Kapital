@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
 import { cleanWorkValues, inputMoney, money, parseMoney, today, uid, validDate, workKindFields, workKinds, workTitle, type AppData, type Income, type WorkKind, type WorkPlan } from '../core/model';
-import { Button, Field, Modal } from './ui';
+import { Button, Field, FormFrame } from './ui';
 import { VoiceField } from './VoiceField';
 import type { VoiceNote } from '../core/model';
 
@@ -9,7 +9,7 @@ export type WorkRequest =
   | { type: 'odd-job'; item?: Income }
   | { type: 'odd-job-plan'; item?: WorkPlan };
 
-export function WorkModal({ request, data, onClose, onSave, onDelete }: { request: WorkRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
+export function WorkModal({ request, data, onClose, onSave, onDelete, inline = false }: { inline?: boolean; request: WorkRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
   const completed = request.type === 'odd-job';
   const item = request.item;
   const editing = !!item;
@@ -41,6 +41,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
   function submit(event: FormEvent) {
     event.preventDefault();
     setError('');
+    if (voiceBusy) return setError('Остановите запись и дождитесь обработки аудио.');
     if (completed) {
       const value = parseMoney(amount);
       if (value === null || value <= 0) return setError('Введите корректную сумму: до двух знаков после запятой, не больше 100 млрд ₽.');
@@ -91,7 +92,7 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
     onClose();
   }
 
-  return <Modal title={completed ? editing ? 'Изменить шабашку' : 'Выполненная шабашка' : editing ? 'Изменить план шабашки' : 'Запланировать шабашку'} subtitle={completed ? 'Первым указывается вид работы, дальше — поля этого вида.' : 'Пока базовая форма планирования: вид работы и основные детали.'} onClose={onClose}>
+  return <FormFrame inline={inline} title={completed ? editing ? 'Изменить шабашку' : 'Выполненная шабашка' : editing ? 'Изменить план шабашки' : 'Запланировать шабашку'} subtitle={completed ? 'Первым указывается вид работы, дальше — поля этого вида.' : 'Пока базовая форма планирования: вид работы и основные детали.'} onClose={onClose}>
     <form onSubmit={submit} className="entry-form">
       <Field label="Вид работы" hint="От выбранного вида зависят поля ниже.">
         <select className="inp" value={kind} onChange={e => changeKind(e.target.value as WorkKind)}>{workKinds.map(k => <option key={k} value={k}>{k}</option>)}</select>
@@ -129,5 +130,5 @@ export function WorkModal({ request, data, onClose, onSave, onDelete }: { reques
         <Button type="submit" disabled={voiceBusy}><Check size={17}/>{editing ? 'Сохранить' : completed ? 'Добавить' : 'Запланировать'}</Button>
       </div>
     </form>
-  </Modal>;
+  </FormFrame>;
 }

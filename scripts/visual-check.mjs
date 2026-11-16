@@ -228,7 +228,7 @@ try {
   await phone.goto(url, { waitUntil: 'networkidle' });
   await phone.evaluate(() => document.fonts.ready);
   const bottom = phone.getByRole('navigation', { name: 'Разделы приложения снизу' });
-  if (await bottom.locator('button').count() !== 4) throw new Error('Android bottom navigation must contain four sections');
+  if (await bottom.locator('button').count() !== 5) throw new Error('Android bottom navigation must contain four sections and add');
   for (const [label, heading] of [['Капитал', 'Мой капитал'], ['Доходы', 'Доходы'], ['Долги', 'Долги'], ['Расчёт', 'Расчёт']]) {
     await bottom.getByRole('button', { name: label, exact: true }).click();
     await phone.getByRole('heading', { name: heading, exact: true }).waitFor();
@@ -237,13 +237,20 @@ try {
     if (layout.overflow || !layout.fixed || !layout.bottom || layout.height > 70 || layout.mainSize > 20) throw new Error(`Android compact layout failed: ${JSON.stringify(layout)}`);
     await phone.screenshot({ path: path.join(out, `android-${label}.png`), fullPage: true });
   }
+  await bottom.getByRole('button', { name: 'Добавить запись' }).click();
+  await phone.getByRole('heading', { name: 'Добавить', exact: true }).waitFor();
+  for (const tab of ['Долг', 'Товар', 'Работа', 'План', 'Расход', 'Доход']) {
+    await phone.getByRole('tab', { name: tab, exact: true }).click();
+    if (await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error(`Android add tab overflow: ${tab}`);
+  }
+  await phone.screenshot({ path: path.join(out, 'android-add.png'), fullPage: true });
   await bottom.getByRole('button', { name: 'Капитал', exact: true }).click();
   await phone.getByRole('heading', { name: 'Мой капитал', exact: true }).waitFor();
   const debtIsSeparate = await phone.evaluate(() => document.querySelector('.role-hand .borrowed-on-hand') === null);
   if (!debtIsSeparate) throw new Error('Debt amounts must stay separate from the resale-capital role cards');
   await phone.close();
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. Android four-section fixed bottom menu/compact pages; no browser errors or horizontal overflow.');
+  console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. Android five-button fixed bottom menu/add forms/compact pages; no browser errors or horizontal overflow.');
 } finally {
   await browser.close();
 }

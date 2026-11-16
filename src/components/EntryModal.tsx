@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { AlertCircle, Check, Trash2 } from 'lucide-react';
 import { accountReferenced, accountKinds, accountRoles, accountRoleOrder, incomeCategories, incomeCategoryOptions, debtPaid, roleAccount, inputMoney, parseMoney, today, uid, validDate, type Account, type AccountKind, type AccountRole, type AppData, type Debt, type Income, type IncomeCategory, type Movement, type Payment, type Person, products } from '../core/model';
-import { Button, Field, Modal } from './ui';
+import { Button, Field, FormFrame } from './ui';
 import { VoiceField } from './VoiceField';
 import { people, type DebtKind, type VoiceNote } from '../core/model';
-export type EntryRequest = { type: 'account'; item?: Account; role?: AccountRole } | { type: 'income'; item: Income; category?: IncomeCategory } | { type: 'debt'; item?: Debt } | { type: 'payment'; debt: Debt; item?: Payment } | { type: 'movement'; item?: Movement; kind?: 'expense' | 'adjustment' };
-export function EntryModal({ request, data, onClose, onSave, onDelete }: { request: EntryRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
+export type EntryRequest = { type: 'account'; item?: Account; role?: AccountRole } | { type: 'income'; item?: Income; category?: IncomeCategory } | { type: 'debt'; item?: Debt } | { type: 'payment'; debt: Debt; item?: Payment } | { type: 'movement'; item?: Movement; kind?: 'expense' | 'adjustment' };
+export function EntryModal({ request, data, onClose, onSave, onDelete, inline = false }: { inline?: boolean; request: EntryRequest; data: AppData; onClose: () => void; onSave: (data: AppData, message: string) => void; onDelete: (data: AppData, message: string) => void }) {
   const item = request.type === 'payment' ? request.item : request.item;
   const [name, setName] = useState(item && 'name' in item ? item.name : item && 'title' in item ? item.title : '');
   const [kind, setKind] = useState<AccountKind>(request.type === 'account' ? request.item?.kind ?? 'bank' : 'bank');
@@ -90,7 +90,7 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
     onClose();
   }
   const accountRequired = ['income','payment','movement'].includes(request.type);
-  return <Modal title={labels[request.type]} subtitle={request.type === 'payment' ? request.debt.title : 'Все суммы в рублях. Изменения сразу отражаются в расчётах.'} onClose={onClose}><form onSubmit={submit} className="entry-form">
+  return <FormFrame inline={inline} title={labels[request.type]} subtitle={request.type === 'payment' ? request.debt.title : 'Все суммы в рублях. Изменения сразу отражаются в расчётах.'} onClose={onClose}><form onSubmit={submit} className="entry-form">
     {request.type === 'debt' && <div className="segmented"><button type="button" className={direction==='i_owe'?'active':''} onClick={()=>setDirection('i_owe')}>Я должен</button><button type="button" className={direction==='owed_to_me'?'active':''} onClick={()=>setDirection('owed_to_me')}>Мне должны</button></div>}
     {request.type === 'movement' && <div className="segmented"><button type="button" className={movementKind==='expense'?'active':''} onClick={()=>setMovementKind('expense')}>Расход</button><button type="button" className={movementKind==='adjustment'?'active':''} onClick={()=>setMovementKind('adjustment')}>Корректировка</button></div>}
     {request.type !== 'payment' && <Field label={request.type==='account'?'Название счёта':'Название'}><input className="inp" required maxLength={request.type==='account'?80:120} value={name} onChange={e=>setName(e.target.value)} placeholder={request.type==='account'?'Например, Основная карта':request.type==='debt'?'Например, заём на ремонт':request.type==='income'?(category==='Шабашки'?'Например, ремонт на выходных':'Например, продажа инструмента'):'Например, поступление за ноябрь'} autoComplete="off"/></Field>}
@@ -110,5 +110,5 @@ export function EntryModal({ request, data, onClose, onSave, onDelete }: { reque
     {error && <div className="form-error" role="alert"><AlertCircle size={17}/>{error}</div>}
     {confirmDelete && <div className="delete-confirm"><strong>Удалить запись?</strong><p>Связанные суммы будут пересчитаны. Это действие нельзя отменить.</p><div className="flex gap-2"><Button type="button" variant="danger" onClick={remove}>Да, удалить</Button><Button type="button" variant="secondary" onClick={()=>setConfirmDelete(false)}>Отмена</Button></div></div>}
     <div className="modal-actions">{editing && <Button type="button" variant="ghost" className="delete-btn" onClick={()=>{setConfirmDelete(true);setError('');}}><Trash2 size={16}/>Удалить</Button>}<Button type="button" variant="secondary" onClick={onClose}>Отмена</Button><Button type="submit" disabled={voiceBusy}><Check size={17}/>{editing?'Сохранить':'Добавить'}</Button></div>
-  </form></Modal>;
+  </form></FormFrame>;
 }

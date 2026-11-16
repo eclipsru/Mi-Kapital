@@ -22,7 +22,7 @@ public final class MainActivity extends Activity {
   private volatile String initialRoute; private volatile String pendingPairing; private volatile boolean routeApplied; private boolean bootReady;
   private final Handler handler=new Handler(Looper.getMainLooper());
   private final Runnable bootWatchdog=()->{if(!bootReady&&updater.activeRoot()!=null){updater.quarantine();Toast.makeText(this,"Обновление не запустилось. Открыта рабочая версия; данные сохранены.",Toast.LENGTH_LONG).show();reload();}};
-  private static String safeRoute(String route){return route!=null&&route.matches("(capital|income|debts|calculation|expenses|calculation/expenses|odd-jobs|resales|income/odd-jobs|income/resales)(\\?new=1)?")?route:null;}
+  private static String safeRoute(String route){return route!=null&&route.matches("(add|capital|income|debts|calculation|expenses|calculation/expenses|odd-jobs|resales|income/odd-jobs|income/resales)(\\?new=1)?")?route:null;}
   @Override public void onCreate(Bundle saved){
     super.onCreate(saved); getWindow().setStatusBarColor(0xff101217);getWindow().setNavigationBarColor(0xff101217);
     store=new NativeStore(this);updater=new Updater(this,store);
@@ -48,13 +48,14 @@ public final class MainActivity extends Activity {
     });
     web.loadUrl("https://appassets.androidplatform.net/app/index.html");
     handler.postDelayed(bootWatchdog,20000);
-    CapitalWidget.updateAll(this);QuickWidget.updateAll(this);
+    CapitalWidget.updateAll(this);QuickWidget.updateAll(this);ReminderWorker.schedule(this);
   }
   public void evaluate(String js){runOnUiThread(()->web.evaluateJavascript(js,null));}
   public void openExternal(String url){try{if(!url.startsWith("https://github.com/"))return;startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){Toast.makeText(this,"Не удалось открыть браузер",Toast.LENGTH_SHORT).show();}}
   public void reload(){runOnUiThread(()->{routeApplied=false;bootReady=false;handler.removeCallbacks(bootWatchdog);handler.postDelayed(bootWatchdog,20000);web.clearCache(true);web.loadUrl("https://appassets.androidplatform.net/app/index.html");});}
   @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);String route=safeRoute(intent.getStringExtra("route"));if(route!=null){initialRoute=route;if(routeApplied)evaluate("window.location.hash="+JSONObject.quote(route));}}
-  @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);WebChromeClient client=web.getWebChromeClient();if(code==AUDIO&&pendingAudioRequest!=null){final PermissionRequest request=pendingAudioRequest;pendingAudioRequest=null;runOnUiThread(()->{if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else request.deny();});}}
+  @Override protected void onResume(){super.onResume();if(web!=null)evaluate("window.dispatchEvent(new Event('mi-kapital-reminders'))");}
+  @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code==104){ReminderWorker.schedule(this);evaluate("window.dispatchEvent(new Event('mi-kapital-reminders'))");}WebChromeClient client=web.getWebChromeClient();if(code==AUDIO&&pendingAudioRequest!=null){final PermissionRequest request=pendingAudioRequest;pendingAudioRequest=null;runOnUiThread(()->{if(results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else request.deny();});}}
   @Override protected void onActivityResult(int code,int result,Intent data){
     super.onActivityResult(code,result,data);
     if(code==PAIR){IntentResult scan=IntentIntegrator.parseActivityResult(code,result,data);if(scan!=null&&scan.getContents()!=null){try{JSONObject pair=new JSONObject(scan.getContents());if(!"mi-kapital-pair".equals(pair.getString("type")))throw new Exception();String address=pair.getString("url");java.net.URL parsed=new java.net.URL(address);if(!parsed.getProtocol().equals("http")||!parsed.getHost().matches("^(192\\.168\\.|10\\.|172\\.(1[6-9]|2\\d|3[01])\\.).*"))throw new Exception();String token=pair.getString("token");if(!token.matches("[a-f0-9]{64}"))throw new Exception();JSONObject config=store.config();config.put("lanUrl",address);config.put("lanToken",token);store.saveConfig(config.toString());pendingPairing=new JSONObject().put("lanUrl",address).put("lanToken",token).toString();evaluate("window.dispatchEvent(new CustomEvent('mi-kapital-pair',{detail:{lanUrl:"+JSONObject.quote(address)+",lanToken:"+JSONObject.quote(token)+"}}))");Toast.makeText(this,"ПК подключён",Toast.LENGTH_SHORT).show();}catch(Exception e){Toast.makeText(this,"Не удалось подключить ПК. Проверьте QR сопряжения и память телефона.",Toast.LENGTH_LONG).show();}}}
@@ -64,6 +65,10 @@ public final class MainActivity extends Activity {
   @Override public void onBackPressed(){if(web.canGoBack())web.goBack();else super.onBackPressed();}
   @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);web.removeJavascriptInterface("MiKapitalNative");web.destroy();super.onDestroy();}
   public final class Bridge {
+    @JavascriptInterface public String reminderSettings(){return ReminderWorker.settings(MainActivity.this).toString();}
+    @JavascriptInterface public String saveReminderSettings(String json){try{ReminderWorker.saveSettings(MainActivity.this,json);return "{\"ok\":true}";}catch(Exception e){return "{\"ok\":false}";}}
+    @JavascriptInterface public void requestNotificationPermission(){runOnUiThread(()->{if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},104);else{Intent intent=new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName());try{startActivity(intent);}catch(Exception ignored){}}});}
+    @JavascriptInterface public void openNotificationSettings(){runOnUiThread(()->{try{startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName()));}catch(Exception ignored){}});}
     @JavascriptInterface public String platform(){return "android";}
     @JavascriptInterface public String loadData(){String value=store.load();return value==null?"null":value;}
     @JavascriptInterface public String saveData(String json){try{store.save(json);return "{\"ok\":true}";}catch(Exception e){return "{\"ok\":false,\"message\":"+JSONObject.quote(e.getMessage()==null?"Не удалось сохранить данные":e.getMessage())+"}";}}

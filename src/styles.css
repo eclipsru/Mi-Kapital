@@ -142,3 +142,11 @@
 @media(max-width:360px){.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .product-details-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.product-details-gallery .product-details-photo{height:150px}
+/* A compact creation workspace, reusing the normal forms. */
+.add-page{max-width:800px;margin:auto}.add-tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 0 12px}.add-tabs button{white-space:nowrap;padding:8px 12px;border-radius:9px;background:var(--panel);color:var(--gr);font-size:12px}.add-tabs button[aria-selected=true]{background:#ff8f1f24;color:var(--or)}.inline-form{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}.inline-form h2{font-size:17px;margin:0 0 14px}.inline-form .entry-form{padding:0}.add-page [hidden]{display:none!important}
+.android-shell .bottom-nav{grid-template-columns:repeat(5,minmax(0,1fr))}.android-shell .bottom-nav-slot{display:contents}.android-shell .bottom-nav-slot>button:not(.bottom-add){display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--gr);font-size:9px;font-weight:650;border-radius:8px;min-width:0}.android-shell .bottom-nav-slot>button.active:not(.bottom-add){color:var(--or);background:#ff8f1f0d}.android-shell .bottom-add{display:flex;align-items:center;justify-content:center;width:46px;height:46px;align-self:center;justify-self:center;border-radius:50%;background:var(--or);color:#171717}.android-shell .page-head p{font-size:11px;line-height:1.4;margin-top:4px}.android-shell .main-content{padding-top:12px}.android-shell .main-footer{margin-top:10px;padding:10px 0}.android-shell .inline-form .entry-form{padding:0}
+.reminder-settings .checkbox-label{display:flex;margin:10px 0;gap:8px}.reminder-settings .field-hint{margin-top:10px}
+
+.android-shell .add-tabs button{min-height:44px}.android-shell .inline-form{padding:12px}.android-shell .inline-form .form-actions{margin-top:14px}
+
+.android-shell .page-head{margin-bottom:14px}.android-shell .page-head .eyebrow{display:none}.android-shell .empty-state{padding:22px 12px}.android-shell .inline-form .field-hint{font-size:11px;line-height:1.45}.android-shell .main-footer>span{display:none}

@@ -27,6 +27,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/update-test"
           javac -d "$RUNNER_TEMP/update-test" android/app/src/main/java/ru/eclipsru/mikapital/UpdateFiles.java android/tests/UpdateFilesTest.java
           java -cp "$RUNNER_TEMP/update-test" ru.eclipsru.mikapital.UpdateFilesTest
+          javac -d "$RUNNER_TEMP/update-test" android/app/src/main/java/ru/eclipsru/mikapital/ReminderRules.java android/tests/ReminderRulesTest.java
+          java -cp "$RUNNER_TEMP/update-test" ru.eclipsru.mikapital.ReminderRulesTest
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: '8.11.1' }
       - run: npm ci
@@ -71,7 +73,7 @@ jobs:
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
       - name: Build signed APK
         working-directory: android
-        run: gradle --no-daemon assembleRelease
+        run: gradle --no-daemon testReleaseUnitTest assembleRelease
       - name: Verify signature and package
         shell: bash
         run: |
