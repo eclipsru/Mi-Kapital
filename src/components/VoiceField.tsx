@@ -34,13 +34,15 @@ export function VoiceField({ label = 'Заметка · необязательн
     setError('');
     if (recorder.current && recorder.current.state !== 'inactive') { recorder.current.stop(); return; }
     const mimeType = recordingMime();
-    if (!navigator.mediaDevices?.getUserMedia || !mimeType) return setError('В этом браузере запись недоступна. Используйте приложение Windows или Android либо введите текст.');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return setError('В этом браузере запись недоступна. Используйте приложение Windows или Android либо введите текст.');
     setBusy(true);
     try {
       const input = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       if (!alive.current) { input.getTracks().forEach(track => track.stop()); return; }
       stream.current = input;
-      const current = new MediaRecorder(input, { mimeType, audioBitsPerSecond: 48000 });
+      let current: MediaRecorder;
+      try { current = mimeType ? new MediaRecorder(input, { mimeType, audioBitsPerSecond: 48000 }) : new MediaRecorder(input); }
+      catch { current = new MediaRecorder(input); }
       recorder.current = current;
       const chunks: BlobPart[] = [];
       started.current = Date.now(); setSeconds(0); setRecording(true);
@@ -49,7 +51,7 @@ export function VoiceField({ label = 'Заметка · необязательн
       current.onstop = async () => {
         const duration = (Date.now() - started.current) / 1000;
         stopTracks();
-        try { const note = await prepareVoice(new Blob(chunks, { type: current.mimeType || mimeType }), duration); if (alive.current) { onVoiceChange(note); setSeconds(note.durationSeconds); } }
+        try { const note = await prepareVoice(new Blob(chunks, { type: current.mimeType || mimeType || 'audio/webm' }), duration); if (alive.current) { onVoiceChange(note); setSeconds(note.durationSeconds); } }
         catch (e) { if (alive.current) setError(mediaError(e)); }
         finally { if (alive.current) { setRecording(false); setBusy(false); } }
       };

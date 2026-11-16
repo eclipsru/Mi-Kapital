@@ -7,7 +7,7 @@ import App from '../src/App';
 import { emptyData, lastMonths, money, today, totals, type ResaleProduct } from '../src/core/model';
 import { serializeBackup } from '../src/core/storage';
 let root:Root|undefined;let container:HTMLElement|undefined;
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;(window as any).__MI_KAPITAL_TEST__=true;
 afterEach(()=>{if(root)act(()=>root!.unmount());container?.remove();root=undefined;container=undefined;localStorage.clear();window.location.hash='';delete (window as any).desktop;});
 async function mount(){container=document.createElement('div');document.body.append(container);root=createRoot(container);await act(async()=>{root!.render(createElement(App));});await act(async()=>{await new Promise(r=>setTimeout(r,10));});}
 const button=(text:string)=>[...container!.querySelectorAll('button')].find(b=>b.textContent?.trim()===text) as HTMLButtonElement;
@@ -37,25 +37,11 @@ describe('real React UI flows',()=>{
     await click('Мой капитал');await click('Товар');expect(window.location.hash).toBe('#resales');await click('Добавить товар');await input('Вид товара','Телефон');await input('Сумма из капитала, ₽','1000');await check('Есть инвестор');await input('Инвестор','Алексей');await input('Сумма инвестора, ₽','300');await input('% от чистой прибыли','20');await input('Описание','Проверен');await submitModal();
     expect(saved().products[0]).toMatchObject({kind:'Телефон',funding:[{source:'capital',amountKopecks:100000}],investor:{name:'Алексей',percentBasisPoints:2000}});
     await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.summary-stack')?.textContent).toContain(money(50));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(100000));
-    await click('Долги');await click('Добавить долг');await input('Название','Заём');await input('Кому вы должны','Алексей');await input('Изначальная сумма, ₽','300');await input('Движение денег при создании','');await submitModal();await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.debt-strip')?.textContent).toContain(money(30000));
+    await click('Долги');await click('Добавить долг');await input('Название','Заём');await input('Кому вы должны','Алексей');await input('Изначальная сумма, ₽','300');await input('Движение денег при создании','');await submitModal();await click('Мой капитал');expect(cashText()).toBe(money(100050));expect(container!.querySelector('.debt-strip')?.textContent).toContain(money(30000));expect(roleCard('hand')).not.toContain('Взял в долг');
     await click('Доходы');await openResales();await click('Продать');await input('Цена продажи, ₽','1500');expect(container!.querySelector('.sale-preview')?.textContent).toContain(money(40000));await submitModal();expect(saved().products[0].sale.priceKopecks).toBe(150000);
     await click('Мой капитал');expect(cashText()).toBe(money(106050));expect(container!.querySelector('.inventory-summary')?.textContent).toContain(money(0));expect(roleCard('capital')).toContain(money(6000));
     await click('Расход / корректировка');await input('Название','Покупка');await input('Сумма, ₽','200');await submitModal();expect(cashText()).toBe(money(86050));expect(roleCard('capital')).toContain(money(6000));
     await click('Долги');await click('Отдать');await input('Сумма, ₽','100');await submitModal();expect(saved().debts[0].payments.length).toBe(1);await click('Мой капитал');expect(cashText()).toBe(money(86050));expect(container!.textContent).toContain('Погашение: Заём');
-  });
-  it('leaves remainder unchanged for a pocket purchase and adds cost and profit after sale',async()=>{
-    localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash',openingKopecks:0,createdAt:'2026-01-01'}]}));await mount();
-    await click('Товар');await click('Добавить товар');await input('Вид товара','Ноутбук');await check('Из кармана');await input('Сумма из кармана, ₽','1000');await submitModal();
-    await click('Мой капитал');expect(cashText()).toBe(money(100000));expect(container!.querySelector('.summary-stack .summary-card strong')?.textContent).toBe(money(0));expect(container!.querySelector('.inventory-summary strong')?.textContent).toBe(money(100000));
-    await clickSelector('.inventory-summary');await click('Продать');await input('Цена продажи, ₽','2000');await submitModal();await click('Мой капитал');
-    expect(cashText()).toBe(money(115000));expect(container!.querySelector('.summary-stack .summary-card strong')?.textContent).toBe(money(115000));expect(container!.querySelector('.inventory-summary strong')?.textContent).toBe(money(0));
-  });
-  it('shows a debt-free remainder and no debt text in the hand role card',async()=>{
-    const data={...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash' as const,openingKopecks:0,createdAt:'2026-01-01'}],debts:[{id:'d',title:'Авто',counterparty:'Алексей',direction:'i_owe' as const,principalKopecks:38150000,date:'2026-11-01',dueDate:'',note:'',initialAccountId:null,payments:[{id:'p',amountKopecks:23000000,date:'2026-11-03',accountId:'a',note:''}]}]};
-    localStorage.setItem('mi-kapital.v2.local',JSON.stringify(data));await mount();
-    expect(totals(data).remainder).toBe(-23000000);
-    expect(container!.querySelector('.summary-stack .summary-card strong')?.textContent).toBe(money(0));
-    expect(cashText()).toBe(money(0));expect(roleCard('hand')).not.toContain('Взял в долг');
   });
   it('opens both income directions as separate pages and counts net profit, not 15%',async()=>{
     const previous=`${lastMonths(2)[0]}-05`.slice(0,7);seedIncome();await mount();
@@ -97,8 +83,14 @@ describe('real React UI flows',()=>{
   it('filters debts by person, adds a person and shows repayment history in the list',async()=>{
     const createdAt=new Date().toISOString();
     localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Счёт',kind:'cash',openingKopecks:100000,createdAt:'2026-01-01'}],people:[{id:'p1',name:'Алексей',createdAt},{id:'p2',name:'Михаил',createdAt}],debts:[{id:'d1',title:'Заём Алексею',counterparty:'Алексей',direction:'i_owe',principalKopecks:10000,date:'2026-01-01',dueDate:'',note:'',initialAccountId:null,payments:[]},{id:'d2',title:'Заём Михаилу',counterparty:'Михаил',direction:'i_owe',principalKopecks:20000,date:'2026-01-01',dueDate:'',note:'',initialAccountId:null,payments:[]}]}));window.location.hash='debts';await mount();
-    expect(container!.querySelectorAll('.debt-list-item').length).toBe(2);await input('Человек','Алексей');expect(container!.querySelectorAll('.debt-list-item').length).toBe(1);expect(container!.querySelector('.debt-summary')?.textContent).toContain(money(10000));
-    await clickSelector('[aria-label="Добавить человека"]');await input('Имя','Игорь');await submitModal();expect(saved().people.length).toBe(3);await input('Человек','');await click('Отдать');await input('Сумма, ₽','30');await input('Какой долг погасить','d2');await submitModal();expect(saved().debts.find((d:{id:string})=>d.id==='d2').payments.length).toBe(1);expect(saved().debts.find((d:{id:string})=>d.id==='d1').payments.length).toBe(0);expect([...container!.querySelectorAll('.debt-repayments')].some(el=>el.textContent?.includes(money(3000)))).toBe(true);
+    expect(container!.querySelectorAll('.person-debt-card').length).toBe(2);await clickSelector('.person-debt-card');expect(container!.querySelectorAll('.debt-list-item').length).toBe(1);expect(container!.querySelector('.debt-summary')?.textContent).toContain(money(10000));
+    await click('← Все люди');await clickSelector('[aria-label="Добавить человека"]');await input('Имя','Игорь');await submitModal();expect(saved().people.length).toBe(3);await clickSelector('.debt-repay-total');await input('Сумма, ₽','30');await input('Какой долг погасить','d2');await submitModal();expect(saved().debts.find((d:{id:string})=>d.id==='d2').payments.length).toBe(1);expect(saved().debts.find((d:{id:string})=>d.id==='d1').payments.length).toBe(0);const cards=container!.querySelectorAll('.person-debt-card');await clickSelector(`.person-debt-card:nth-child(${cards.length})`);expect([...container!.querySelectorAll('.debt-repayments')].some(el=>el.textContent?.includes(money(3000)))).toBe(true);
+  });
+  it('adds a person from the debt form and opens person-specific debt page',async()=>{
+    await mount();await click('Долги');await click('Добавить долг');await input('Название','Заём');await click('+ Новый человек');await input('Имя нового человека','Новый знакомый');await input('Изначальная сумма, ₽','125');await submitModal();expect(saved().people.map((p:{name:string})=>p.name)).toContain('Новый знакомый');expect(saved().debts[0].counterparty).toBe('Новый знакомый');expect(container!.querySelector('.person-debt-card')?.textContent).toContain('Новый знакомый');
+  });
+  it('opens a separate expenses view from calculation and supports expense creation',async()=>{
+    const createdAt=new Date().toISOString();localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'bank',openingKopecks:100000,createdAt}],movements:[{id:'m1',title:'Продукты',kind:'expense',amountKopecks:25000,date:today(),accountId:'a',note:''}]}));await mount();await click('Расчёт');await click('Расходы');expect(container!.querySelector('h1')?.textContent).toBe('Расходы');expect(container!.textContent).toContain(money(25000));expect(container!.querySelectorAll('.expenses-table tbody tr')).toHaveLength(1);await click('Добавить расход');expect(container!.querySelector('.segmented')?.textContent).toContain('Расход');
   });
   it('shows role cards 15/70/15 and the chainsaw example in the capital overview',async()=>{
     const createdAt=new Date().toISOString();
@@ -128,10 +120,35 @@ describe('phone navigation, split repayment and free product',()=>{
   });
   it('splits one repayment across selected accounts atomically and rejects a mismatch',async()=>{
     localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Карта',kind:'bank',openingKopecks:100000,createdAt:'2026-01-01'},{id:'b',name:'Наличные',kind:'cash',openingKopecks:50000,createdAt:'2026-01-01'}],debts:[{id:'d',title:'Долг',counterparty:'Друг',direction:'i_owe',principalKopecks:30000,date:'2026-01-01',dueDate:'',note:'',initialAccountId:null,payments:[]}]}));window.location.hash='debts';await mount();await clickSelector('.debt-repay-total');await input('Сумма, ₽','300');await clickSelector('[aria-label="Списать со счёта Наличные"]');await input('Сумма со счёта Карта','100');await input('Сумма со счёта Наличные','100');await submitModal();expect(container!.querySelector('[role="alert"]')?.textContent).toContain('должны давать общую сумму');expect(saved().debts[0].payments).toEqual([]);
-    await input('Сумма со счёта Наличные','200');await submitModal();expect(saved().debts[0].payments.map((p:any)=>[p.accountId,p.amountKopecks])).toEqual([['a',10000],['b',20000]]);expect(totals(saved()).payable).toBe(0);expect(totals(saved()).remainder).toBe(120000);expect(totals(saved()).totalCapital).toBe(150000);await check('Показывать закрытые');expect(container!.querySelectorAll('.debt-repayments li')).toHaveLength(2);
+    await input('Сумма со счёта Наличные','200');await submitModal();expect(saved().debts[0].payments.map((p:any)=>[p.accountId,p.amountKopecks])).toEqual([['a',10000],['b',20000]]);expect(totals(saved()).payable).toBe(0);expect(totals(saved()).remainder).toBe(150000);expect(totals(saved()).totalCapital).toBe(150000);await clickSelector('.person-debt-card');await check('Показывать закрытые');expect(container!.querySelectorAll('.debt-repayments li')).toHaveLength(2);
   });
   it('adds a free product without an account and replaces Бесплатно with pocket funding',async()=>{
     window.location.hash='resales';await mount();await click('Добавить товар');await input('Вид товара','Подарок');expect(container!.querySelector('.purchase-total')?.textContent).toContain('Бесплатно');await submitModal();expect(saved().products[0].funding).toEqual([]);expect(container!.querySelector('.product-cost')?.textContent).toContain('Бесплатно');
-    await click('Вложения');await check('Из кармана');await input('Сумма из кармана, ₽','25');expect(container!.querySelector('.purchase-total')?.textContent).toContain(money(2500));expect(container!.querySelector('.purchase-total')?.textContent).not.toContain('Бесплатно');await submitModal();expect(totals(saved()).assets).toBe(2500);expect(totals(saved()).remainder).toBe(0);expect(totals(saved()).totalCapital).toBe(2500);
+    await click('Вложения');await check('Из кармана');await input('Сумма из кармана, ₽','25');expect(container!.querySelector('.purchase-total')?.textContent).toContain(money(2500));expect(container!.querySelector('.purchase-total')?.textContent).not.toContain('Бесплатно');await submitModal();expect(totals(saved()).assets).toBe(2500);expect(totals(saved()).remainder).toBe(0);
+  });
+});
+
+describe('visual debt and resale categories',()=>{
+  it('shows each debt direction separately, including people with debts in both directions',async()=>{
+    const debt=(id:string,counterparty:string,direction:'i_owe'|'owed_to_me')=>({id,title:id,counterparty,direction,principalKopecks:10000,date:today(),dueDate:'',note:'',initialAccountId:null,payments:[]});
+    const data={...emptyData(),people:[{id:'zero',name:'Без долгов',createdAt:'2026-01-01'}],debts:[debt('a','Михаил','i_owe'),debt('b','Наталья','owed_to_me'),debt('c','Ольга','i_owe'),debt('d','Ольга','owed_to_me')]};
+    localStorage.setItem('mi-kapital.v2.local',JSON.stringify(data));window.location.hash='debts';await mount();
+    const cards=[...container!.querySelectorAll('.person-debt-card')];
+    const card=(name:string)=>cards.find(el=>el.textContent?.includes(name))!;
+    expect(card('Михаил').classList.contains('debt-tone-payable')).toBe(true);expect(card('Михаил').textContent).toContain('Я должен');
+    expect(card('Наталья').classList.contains('debt-tone-receivable')).toBe(true);expect(card('Наталья').textContent).toContain('Мне должны');
+    expect(card('Ольга').classList.contains('debt-tone-mixed')).toBe(true);expect(card('Ольга').textContent).toContain('Я должен');expect(card('Ольга').textContent).toContain('Мне должны');
+    expect(card('Без долгов').classList.contains('debt-tone-none')).toBe(true);expect(card('Без долгов').textContent).toContain('Нет открытых долгов');
+    await act(async()=>{(card('Ольга') as HTMLButtonElement).click();});expect(container!.querySelectorAll('.debt-list-item.debt-tone-payable').length).toBe(1);expect(container!.querySelectorAll('.debt-list-item.debt-tone-receivable').length).toBe(1);
+    expect(saved().debts).toEqual(data.debts);
+  });
+  it('colors goods by preparation, listing and personal net sale outcome including break-even',async()=>{
+    const base={...product,investor:undefined,description:'',funding:[{source:'pocket' as const,accountId:'',amountKopecks:10000}]};
+    const sale=(priceKopecks:number)=>({priceKopecks,date:today(),accountId:'a'});
+    const items=[{...base,id:'prep',kind:'Подготовка',status:'preparing' as const},{...base,id:'listed',kind:'Продажа',status:'listed' as const},{...base,id:'profit',kind:'Прибыль',sale:sale(20000)},{...base,id:'loss',kind:'Убыток',sale:sale(5000)},{...base,id:'zero',kind:'Ноль',sale:sale(10000)}];
+    localStorage.setItem('mi-kapital.v2.local',JSON.stringify({...emptyData(),accounts:[{id:'a',name:'Счёт',kind:'cash',openingKopecks:0,createdAt:'2026-01-01'}],products:items}));window.location.hash='resales';await mount();
+    const card=(name:string)=>[...container!.querySelectorAll('.product-card')].find(el=>el.querySelector('.product-title')?.textContent?.includes(name))!;
+    for(const [name,tone,label] of [['Подготовка','preparing','На подготовке'],['Продажа','listed','На продаже'],['Прибыль','profit','Продан с прибылью'],['Убыток','loss','Продан с убытком'],['Ноль','break-even','Продан без прибыли']]) {expect(card(name).classList.contains(`product-tone-${tone}`)).toBe(true);expect(card(name).querySelector('.product-status-label')?.textContent).toBe(label);}
+    expect(saved().products.map((p:{id:string})=>p.id)).toEqual(items.map(p=>p.id));
   });
 });

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowRight, ArrowUpRight, CircleHelp, Eye, EyeOff, Layers3, Plus, ShieldCheck, Sparkles, TrendingUp, Wallet } from 'lucide-react';
-import { accountBalance, accountRoleOrder, accountRoles, allocations, capitalRemainder, inventoryProducts, ledger, money, monthlySeries, roleAccount, totals, type AppData, type LedgerItem } from '../core/model';
+import { accountBalance, accountRoleOrder, accountRoles, allocations, inventoryProducts, ledger, money, monthlySeries, roleAccount, totals, type AppData, type LedgerItem } from '../core/model';
 import { AccountIcon, AddButton, Badge, Bars, Button, Empty, IconButton, LedgerTable, Modal, PageHead, SectionHead } from '../components/ui';
 import type { EntryRequest } from '../components/EntryModal';
 
@@ -16,14 +16,14 @@ export function CapitalPage({ data, onEdit, onCalculate, onOpenResales }: { data
     <PageHead eyebrow="ВАШИ ФИНАНСЫ · ОБЗОР" title="Мой капитал" description="Активы, остаток и распределение прибыли — в одной картине." action={<AddButton onClick={() => onEdit({ type: 'account' })}>Добавить счёт</AddButton>}/>
     <div className="overview-grid">
       <section className="balance-card">
-        <div className="balance-top"><span><Wallet size={18}/>Общий капитал</span><IconButton label={hidden ? 'Показать суммы' : 'Скрыть суммы'} onClick={() => setHidden(!hidden)}>{hidden ? <EyeOff size={18}/> : <Eye size={18}/>}</IconButton></div>
+        <div className="balance-top"><span><Wallet size={18}/>Капитал для перепродаж</span><IconButton label={hidden ? 'Показать суммы' : 'Скрыть суммы'} onClick={() => setHidden(!hidden)}>{hidden ? <EyeOff size={18}/> : <Eye size={18}/>}</IconButton></div>
         <div className="balance-amount">{amount(t.totalCapital)}</div>
-        <p>Активы + остаток без долгов · долги не учитываются</p>
-        <div className="balance-bottom"><span><span className="status-dot green"/>После продажи в остаток возвращаются цена покупки и 15% прибыли</span><ShieldCheck size={19}/></div>
+        <p>Активы + остаток для перепродаж · долги отдельно</p>
+        <div className="balance-bottom"><span><span className="status-dot green"/>Покупка за капитал переводит сумму из остатка в активы; продажа возвращает цену покупки + 15% чистой прибыли</span><ShieldCheck size={19}/></div>
         <div className="balance-art" aria-hidden="true"><div className="art-ring ring-one"/><div className="art-ring ring-two"/><div className="art-ring ring-three"/><div className="art-coin"><span>₽</span></div><div className="art-mini"><TrendingUp size={27}/></div></div>
       </section>
       <div className="summary-stack">
-        <section className="summary-card"><span className="metric-icon green"><ArrowUpRight size={21}/></span><div><span className="metric-label">Остаток</span><strong>{amount(capitalRemainder(data, true))}</strong><small>Капитал вне товаров · без долгов</small></div><button className="metric-link" aria-label="Перейти к доходам" onClick={() => { window.location.hash = 'income'; }}><ArrowRight size={18}/></button></section>
+        <section className="summary-card"><span className="metric-icon green"><ArrowUpRight size={21}/></span><div><span className="metric-label">Остаток</span><strong>{amount(t.remainder)}</strong><small>Капитал вне товаров</small></div><button className="metric-link" aria-label="Перейти к доходам" onClick={() => { window.location.hash = 'income'; }}><ArrowRight size={18}/></button></section>
         <section className="summary-card inventory-summary" onClick={onOpenResales} role="link" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenResales(); } }}><span className="metric-icon orange"><Layers3 size={21}/></span><div><span className="metric-label">Активы</span><strong>{amount(t.assets)}</strong><small>{inventoryProducts(data).length} товаров · свои вложения без инвестора</small></div></section>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, CalendarDays, CheckCheck, ImageOff, Mic, Package, Search, TrendingUp, Users, Wallet, X } from 'lucide-react';
 import { formatDate, formatDuration, fundingLabels, inventoryProducts, money, monthKey, monthLabel, productCost, productStatus, productStatusLabels, products, purchasePriceLabel, resaleInventoryValue, resaleNetProfit, saleBreakdown, soldProducts, statusDurations, sum, today, type AppData, type ResaleProduct } from '../core/model';
-import { AddButton, Badge, Button, Empty, PageHead, SectionHead } from '../components/ui';
+import { AddButton, Button, Empty, PageHead, SectionHead } from '../components/ui';
 import type { ProductRequest } from '../components/ProductModal';
 
 type StockTab = 'all' | 'stock' | 'preparing' | 'listed' | 'sold';
@@ -34,15 +34,17 @@ export function ResalesPage({ data, onEdit, onBack }: { data: AppData; onEdit: (
       <SectionHead title={tabLabels[tab]} count={filtered.length}/>
       {filtered.length ? <div className="product-grid">{filtered.map(product => <ProductCard key={product.id} product={product} onEdit={onEdit}/>)}</div> : <Empty icon={Package} title={query ? 'Ничего не найдено' : tab === 'sold' ? 'Пока нет продаж' : 'Пока нет товаров'} text={query ? 'Попробуйте другой запрос или месяц.' : tab === 'sold' ? 'Нажмите «Продать» в карточке товара. Прибыль и возврат покупки рассчитаются автоматически.' : 'Добавьте первый товар: фото, цену покупки и источники денег.'} action={tab !== 'sold' && <Button onClick={add}>Добавить товар</Button>}/>}
     </section>
-    <div className="info-banner resales-rule"><Wallet size={20}/><p><strong>Как двигаются деньги.</strong> Часть «Капитал» уменьшает остаток счёта. «Из кармана» не списывается со счёта и до продажи не добавляется к остатку. После продажи в остаток возвращаются цена покупки и 15% чистой прибыли; остальные 15% на долги и 70% на руки начисляются на карточки ролей. Прибыль считается после доли инвестора.</p></div>
+    <div className="info-banner resales-rule"><Wallet size={20}/><p><strong>Как двигаются деньги.</strong> Часть «Капитал» уменьшает остаток счёта, а «Из кармана» входит в цену покупки и активы без списания со счетов. После продажи на выбранный счёт возвращается цена покупки + 15% чистой прибыли (после доли инвестора); убыток уменьшает остаток на всю сумму потери. Остальные доли прибыли — 70% на руки и 15% на долги — показываются на карточках ролей.</p></div>
   </>;
 }
 function ProductCard({ product, onEdit }: { product: ResaleProduct; onEdit: (request: ProductRequest) => void }) {
   const result = saleBreakdown(product);
   const status = productStatus(product);
   const durations = statusDurations(product);
-  return <article className={`product-card compact status-${status}`}>
-    <div className="product-card-image">{product.photos[0] ? <img src={product.photos[0]} alt={product.kind}/> : <div className="product-no-photo"><ImageOff size={22}/><span>Без фото</span></div>}<Badge tone={status === 'sold' ? 'green' : status === 'listed' ? 'orange' : 'neutral'}>{productStatusLabels[status]}</Badge></div>
+  const colorStatus = status === 'sold' ? result.personalProfit > 0 ? 'profit' : result.personalProfit < 0 ? 'loss' : 'break-even' : status;
+  const statusLabel = status === 'sold' ? result.personalProfit > 0 ? 'Продан с прибылью' : result.personalProfit < 0 ? 'Продан с убытком' : 'Продан без прибыли' : productStatusLabels[status];
+  return <article className={`product-card compact status-${status} product-tone-${colorStatus}`}>
+    <div className="product-card-image">{product.photos[0] ? <img src={product.photos[0]} alt={product.kind}/> : <div className="product-no-photo"><ImageOff size={22}/><span>Без фото</span></div>}<span className="product-status-label">{statusLabel}</span></div>
     <div className="product-card-body">
       <button className="text-link product-title" onClick={() => onEdit({ type: 'product', item: product })}>{product.kind}<ArrowUpRight size={14}/></button>
       <div className="product-cost"><span>Цена покупки</span><strong>{purchasePriceLabel(productCost(product))}</strong></div>

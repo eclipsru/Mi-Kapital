@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
-import { prepareVoice, mediaError } from '../src/core/media';
+import { describe, expect, it, vi } from 'vitest';
+import { prepareVoice, mediaError, recordingMime } from '../src/core/media';
 import { validateData } from '../src/core/storage';
 import { emptyData } from '../src/core/model';
 describe('local voice notes',()=>{
@@ -9,6 +9,12 @@ describe('local voice notes',()=>{
     expect(note).toEqual({mimeType:'audio/webm',dataUrl:'data:audio/webm;base64,AQID',durationSeconds:2.3});
     const d={...emptyData(),accounts:[{id:'a',name:'Карта',kind:'cash' as const,openingKopecks:1000,createdAt:'2026-01-01'}],products:[{id:'g',kind:'Телефон',purchaseDate:'2026-01-01',funding:[{source:'capital' as const,accountId:'a',amountKopecks:100}],description:'',photos:[],voice:note,createdAt:'2026-01-01'}]};
     expect(validateData(d).products![0].voice).toEqual(note);
+  });
+  it('prefers a supported MP4 recorder format in Android WebView',()=>{
+    (window as any).desktop={platform:'android'};
+    vi.stubGlobal('MediaRecorder', class { static isTypeSupported(type:string){ return type==='audio/mp4'; } });
+    expect(recordingMime()).toBe('audio/mp4');
+    vi.unstubAllGlobals();delete (window as any).desktop;
   });
   it('rejects empty, unsupported and oversized recordings with readable errors',async()=>{
     await expect(prepareVoice(new Blob([],{type:'audio/webm'}),1)).rejects.toThrow('пустая');

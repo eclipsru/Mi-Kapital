@@ -14,6 +14,7 @@ const out = path.resolve('artifacts/screenshots');
 fs.mkdirSync(out, { recursive: true });
 const browser = await playwright.launch({ executablePath: await chromium.executablePath(), args: [...chromium.args, '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'], headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+await page.addInitScript(() => { window.__MI_KAPITAL_TEST__ = true; });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const url = process.env.APP_URL || 'http://127.0.0.1:5173';
@@ -30,7 +31,7 @@ async function assertLayout(label) {
     if (directions && getComputedStyle(directions).display !== 'grid') return 'income direction cards lost their base layout';
     const resaleGrid = document.querySelector('.product-grid');
     if (resaleGrid && getComputedStyle(resaleGrid).display !== 'grid') return 'resale grid lost its base layout';
-    if (resaleGrid && window.innerWidth >= 1200 && getComputedStyle(resaleGrid).gridTemplateColumns.split(' ').length !== 3) return 'resale grid is not three cards per row on desktop';
+    if (resaleGrid && window.innerWidth >= 1200 && getComputedStyle(resaleGrid).gridTemplateColumns.split(' ').length < 4) return 'resale cards should fit at least four per row on desktop';
     const roleGrid = document.querySelector('.role-accounts-grid');
     if (roleGrid && getComputedStyle(roleGrid).display !== 'grid') return 'role account grid lost its base layout';
     const debtList = document.querySelector('.debts-list');
@@ -220,6 +221,7 @@ try {
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
   phone.on('pageerror', error => errors.push(error.message));
   await phone.addInitScript(() => {
+    window.__MI_KAPITAL_TEST__ = true;
     window.desktop = { platform: 'android', info: async () => ({ version: '2.0.37', shellVersion: '2', phase: 'idle', mode: 'files', percent: 0, transferred: 0, total: 0, packaged: true }), checkUpdates: async () => {}, installUpdate: async () => ({ ok: true }), openReleases: async () => {}, onUpdate: () => () => {}, loadData: async () => JSON.parse(localStorage.getItem('mi-kapital.v2.local') || 'null'), saveData: async data => localStorage.setItem('mi-kapital.v2.local', JSON.stringify(data)), exportBackup: async () => true, bootReady: () => {}, syncConfig: async () => ({ lanEnabled: true, lanPort: 47653, lanToken: '', lanUrl: '', cloudEnabled: false, supabaseUrl: '', supabaseKey: '', email: '' }), saveSyncConfig: async () => {}, syncInfo: async () => null, scanPairing: async () => {} };
   });
   await phone.goto(url, { waitUntil: 'networkidle' });
@@ -236,7 +238,8 @@ try {
   }
   await bottom.getByRole('button', { name: 'Капитал', exact: true }).click();
   await phone.getByRole('heading', { name: 'Мой капитал', exact: true }).waitFor();
-  if (await phone.locator('.role-hand .borrowed-on-hand').count()) throw new Error('The hand role card must not show a borrowed amount');
+  const debtIsSeparate = await phone.evaluate(() => document.querySelector('.role-hand .borrowed-on-hand') === null);
+  if (!debtIsSeparate) throw new Error('Debt amounts must stay separate from the resale-capital role cards');
   await phone.close();
   if (errors.length) throw new Error(errors.join('\n'));
   console.log('Visual checks passed: capital role cards, net-profit income, resale statuses/compact cards/media forms, odd-jobs stats/plans, debt list/people/repayment, legacy history, update dialog, 1440/1280/1024/768/390 px. Android four-section fixed bottom menu/compact pages; no browser errors or horizontal overflow.');

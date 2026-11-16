@@ -37,11 +37,11 @@ export const accountRoleOrder: AccountRole[] = ['capital', 'hand', 'debt'];
 export const productStatusLabels: Record<ProductStatus | 'sold', string> = { preparing: 'На подготовке', listed: 'На продаже', sold: 'Продан' };
 export const roleAccount = (data: AppData, role: AccountRole) => data.accounts.find(a => a.role === role);
 export const productStatus = (p: ResaleProduct): ProductStatus | 'sold' => p.sale ? 'sold' : p.status ?? 'preparing';
-// «Из кармана» не списывается со счёта и не добавляется к остатку при покупке.
-// После продажи она входит в возвращённую цену покупки.
+// «Из кармана» входит в цену покупки, активы и прибыль, но не списывается ни с одного счёта.
+// Со счетов списывается только часть «Капитал»; продажа возвращает цену покупки + 15% личной чистой прибыли.
 export const deductedFunding = (product: ResaleProduct) => product.funding.filter(f => f.source === 'capital');
 export const productCost = (product: ResaleProduct) => sum(product.funding.map(f => f.amountKopecks));
-export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data, true) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
+export const capitalFundingAvailable = (data: AppData, editing?: ResaleProduct) => capitalRemainder(data) + (editing ? sum(deductedFunding(editing).map(f => f.amountKopecks)) : 0);
 // Exact integer rounding: percentages are basis points (15% = 1500, 12.5% = 1250).
 export function shareKopecks(amountKopecks: number, basisPoints: number): number {
   if (!Number.isSafeInteger(amountKopecks) || amountKopecks < 0 || !Number.isInteger(basisPoints) || basisPoints < 0 || basisPoints > 10000) throw new Error('Некорректная сумма или процент');
@@ -61,6 +61,7 @@ export function saleBreakdown(product: ResaleProduct) {
   const investorKopecks = product.sale ? shareKopecks(Math.max(0, profit), product.investor?.percentBasisPoints ?? 0) : 0;
   const personalProfit = profit - investorKopecks;
   const earnedKopecks = shareKopecks(Math.max(0, personalProfit), PERSONAL_SHARE_BPS);
+  // The resale balance receives purchase cost plus the 15% capital share of personal net profit.
   // A loss reduces available money by the full loss, not merely by 15% of it.
   const returnedKopecks = !product.sale ? 0 : profit < 0 ? revenue : cost + earnedKopecks;
   const remainderKopecks = Math.max(0, personalProfit) - earnedKopecks;
@@ -95,16 +96,26 @@ export function returnedPrincipal(product: ResaleProduct): number {
   const cost = productCost(product);
   return product.sale.priceKopecks < cost ? product.sale.priceKopecks : cost;
 }
-// Остаток капитала: денежные счета и 15% чистой прибыли шабашек.
-// Покупки товаров уже уменьшают денежные счета, продажа возвращает тело покупки и 15% прибыли.
-// Обычные расходы, корректировки и прежние поступления остаются в расчёте; долги не вычитаются повторно.
-export function capitalRemainder(data: AppData, ignoreDebts = false): number {
+// Остаток капитала для перепродаж: деньги на счетах без полной выручки шабашек,
+// но с 15% чистой прибыли шабашек. Долговые поступления и платежи не влияют на этот показатель.
+// Покупки уменьшают остаток только на сумму из источника «Капитал»; продажа возвращает цену товара + 15% чистой прибыли.
+export function capitalRemainder(data: AppData): number {
   const liquidIds = new Set(liquidAccounts(data).map(a => a.id));
-  const liquid = sum(liquidAccounts(data).map(a => accountBalance(data, a.id, ignoreDebts)));
+  const liquid = sum(liquidAccounts(data).map(a => accountBalance(data, a.id)));
+  let debtCashEffects = 0;
+  for (const debt of data.debts) {
+    if (debt.initialAccountId && liquidIds.has(debt.initialAccountId)) {
+      debtCashEffects += debt.direction === 'i_owe' ? debt.principalKopecks : -debt.principalKopecks;
+    }
+    for (const payment of debt.payments) {
+      if (!liquidIds.has(payment.accountId)) continue;
+      debtCashEffects += debt.direction === 'i_owe' ? -payment.amountKopecks : payment.amountKopecks;
+    }
+  }
   const jobs = oddJobIncomes(data).filter(i => liquidIds.has(i.accountId));
   const jobReceipts = sum(jobs.map(i => i.amountKopecks));
   const jobCapital = sum(jobs.map(i => profitAllocation(jobNetProfit(i)).capital));
-  return liquid - jobReceipts + jobCapital;
+  return liquid - debtCashEffects - jobReceipts + jobCapital;
 }
 export interface StatusDurations { preparingMs: number; listedMs: number; soldMs: number }
 export function statusDurations(product: ResaleProduct, now = Date.now()): StatusDurations {
@@ -213,7 +224,7 @@ export function lastMonths(count: number, end = today()): string[] {
 export const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 export const debtPaid = (debt: Debt) => sum(debt.payments.map(p => p.amountKopecks));
 export const debtRemaining = (debt: Debt) => debt.principalKopecks - debtPaid(debt);
-export function accountBalance(data: AppData, accountId: string, ignoreDebts = false): number {
+export function accountBalance(data: AppData, accountId: string): number {
   const account = data.accounts.find(a => a.id === accountId);
   if (!account) return 0;
   let balance = account.openingKopecks;
@@ -223,7 +234,7 @@ export function accountBalance(data: AppData, accountId: string, ignoreDebts = f
     for (const funding of deductedFunding(product)) if (funding.accountId === accountId) balance -= funding.amountKopecks;
     if (product.sale?.accountId === accountId) balance += saleBreakdown(product).returnedKopecks;
   }
-  if (!ignoreDebts) for (const debt of data.debts) {
+  for (const debt of data.debts) {
     if (debt.initialAccountId === accountId) balance += debt.direction === 'i_owe' ? debt.principalKopecks : -debt.principalKopecks;
     for (const payment of debt.payments) if (payment.accountId === accountId) balance += debt.direction === 'i_owe' ? -payment.amountKopecks : payment.amountKopecks;
   }
@@ -233,10 +244,8 @@ export function totals(data: AppData) {
   const assets = inventoryValue(data);
   const remainder = capitalRemainder(data);
   const payable = sum(data.debts.filter(d => d.direction === 'i_owe').map(debtRemaining));
-  // При покупке из кармана сумма входит в активы, но не в остаток.
-  // При продаже стоимость покупки и 15% прибыли возвращаются на счёт.
-  // Движения по долгам полностью исключены из общего капитала.
-  const totalCapital = assets + capitalRemainder(data, true);
+  // Resale capital is inventory plus available resale cash; debts are tracked separately and never change this total.
+  const totalCapital = assets + remainder;
   const receivable = sum(data.debts.filter(d => d.direction === 'owed_to_me').map(debtRemaining));
   const month = monthKey(today());
   const incomeMonth = earnedIncome(data, month);
@@ -252,7 +261,7 @@ export function ledger(data: AppData): LedgerItem[] {
   for (const product of products(data)) {
     const cost = productCost(product);
     items.push({ id: `purchase-${product.id}`, type: 'product-purchase', title: `Покупка: ${product.kind}`, subtitle: product.funding.length ? product.funding.map(f => f.source === 'pocket' ? `${fundingLabels.pocket} · без списания` : `${fundingLabels.capital} · ${accountName(f.accountId)}`).join(' + ') : 'Бесплатно · без списания', date: product.purchaseDate, amount: cost, accountId: deductedFunding(product)[0]?.accountId ?? null, positive: false });
-    if (product.sale) items.push({ id: `sale-${product.id}`, type: 'product-sale', title: `Продажа: ${product.kind}`, subtitle: `Возврат покупки + распределение прибыли · ${accountName(product.sale.accountId)}`, date: product.sale.date, amount: saleBreakdown(product).returnedKopecks, accountId: product.sale.accountId, positive: true });
+    if (product.sale) items.push({ id: `sale-${product.id}`, type: 'product-sale', title: `Продажа: ${product.kind}`, subtitle: `Зачисление после продажи · ${accountName(product.sale.accountId)}`, date: product.sale.date, amount: saleBreakdown(product).returnedKopecks, accountId: product.sale.accountId, positive: true });
   }
   for (const m of data.movements) items.push({ id: m.id, type: m.kind, title: m.title, subtitle: `${m.kind === 'expense' ? 'Расход' : 'Корректировка'} · ${accountName(m.accountId)}`, date: m.date, amount: m.amountKopecks, accountId: m.accountId, positive: m.kind === 'adjustment' && m.amountKopecks >= 0 });
   for (const d of data.debts) {

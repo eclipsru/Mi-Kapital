@@ -13,7 +13,7 @@ import { defaultSyncConfig, mergeData, sameData, stampChanges } from '../src/cor
 const require=createRequire(import.meta.url);
 const {createStore}=require('../electron/store.cjs');
 const {createSyncServer}=require('../electron/sync-server.cjs');
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;(window as any).__MI_KAPITAL_TEST__=true;
 const cleanup:(()=>Promise<void>|void)[]=[];
 afterEach(async()=>{for(const fn of cleanup.reverse().splice(0))await fn();(window as any).happyDOM?.setURL('http://localhost/');localStorage.clear();delete (window as any).desktop;window.location.hash='';});
 const account=(id:string,amount:number)=>({id,name:id,kind:'cash' as const,openingKopecks:amount,createdAt:'2026-01-01'});
@@ -99,7 +99,9 @@ describe('real HTTP PC ↔ Android synchronization',()=>{
     // An edit made and saved on the PC is pushed to the still-open phone via SSE.
     const beforePc=store.load();const pcDebt={id:'pc-debt',title:'Долг с ПК',counterparty:'Алексей',direction:'i_owe' as const,principalKopecks:80000,date:'2026-11-01',dueDate:'',note:'',initialAccountId:null,payments:[]};
     await act(async()=>{await store.save(stampChanges(beforePc,{...beforePc,debts:[...beforePc.debts,pcDebt]},'pc-ui',Date.now()));server.changed();});
-    await until(()=>container.textContent?.includes('Долг с ПК')??false);
+    await until(()=>phoneData?.debts.some(d=>d.title==='Долг с ПК')??false);
+    await act(async()=>{(container.querySelector('.person-debt-card') as HTMLButtonElement).click();});
+    expect(container.textContent).toContain('Долг с ПК');
     expect(phoneData!.debts.map(d=>d.title)).toContain('Долг с ПК');
     await act(async()=>{[...container.querySelectorAll('button')].find(b=>b.textContent?.trim()==='Мой капитал')!.click();});
     const response=await fetch(`${base}/sync/pull`,{headers:{Authorization:'Bearer '+token}});const envelope=await response.json();
